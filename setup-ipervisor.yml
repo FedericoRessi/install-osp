@@ -61,3 +61,19 @@
       local_action: wait_for host={{ inventory_hostname }} state=started delay=10 timeout=300
       become: false
       when: reboot_hint.stdout.find("reboot") != -1
+
+    - name: Install Squid proxy
+      yum:
+        name: squid
+        state: installed
+
+    - name: Make sure Squid is enabled and running
+      systemd:
+        name: squid
+        enabled: yes
+        state: started
+
+    - name: Setup firewall rules for Squid
+      shell: |
+        firewall-cmd --permanent --add-service=squid
+        firewall-cmd --reload
