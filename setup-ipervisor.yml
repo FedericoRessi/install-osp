@@ -110,3 +110,33 @@
         name: libvirtd
         enabled: yes
         state: started
+
+    - name: Check provisioning network has been configured
+      shell: >
+        virsh net-list --persistent |
+          awk '
+            ($1=="provisioning" && $2=="active" && $3=="yes" && $4 == "yes") {
+              success=1
+            }
+            END{
+              if(success != 1) exit(1)
+            }
+          '
+      ignore_errors: true
+      register: has_provisioning_network
+
+    - name: Configure provisioning network
+      when: has_provisioning_network|failed
+      block:
+
+        - name: Upload ipervisor provisioning network conf file
+          template:
+            src: tmp/provisioning-network.xml
+            dest: /tmp/provisioning-network.xml
+
+        - name: Define ipervisor provisioning network
+          command: virsh {{ item }}
+          with_items:
+            - net-define /tmp/provisioning-network.xml
+            - net-autostart provisioning
+            - net-start provisioning
