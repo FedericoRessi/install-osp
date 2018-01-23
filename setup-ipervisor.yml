@@ -1,0 +1,28 @@
+---
+- hosts: target
+  become: true
+
+  vars:
+    user: stack
+    home: "/home/{{ user }}"
+
+  tasks:
+
+    - name: Get ipervisor packages access RPM
+      get_url:
+        url: "http://rhos-release.virt.bos.redhat.com/repos/rhos-release/rhos-release-latest.noarch.rpm"
+        dest: /tmp/rhos-release-latest.noarch.rpm
+
+    - name: Enable ipervisor packages access
+      yum:
+        name: /tmp/rhos-release-latest.noarch.rpm
+        state: present
+
+    - name: Enable the latest OSP director and RHEL packages
+      shell: >
+        rhos-release 11-director
+
+    - name: Upgrade all packages
+      yum:
+        name: "*"
+        state: latest
