@@ -77,3 +77,36 @@
       shell: |
         firewall-cmd --permanent --add-service=squid
         firewall-cmd --reload
+
+    - name: Check virtualization acceleration
+      shell: >
+        egrep -c '(vmx|svm)' /proc/cpuinfo
+      register: has_virtualization_acceleration
+
+    - name: Warn if acceleration is not available
+      when: has_virtualization_acceleration.stdout|int < 1
+      debug:
+        msg: "WARNING: host {{ inventory_hostname }} CPU has no virtualization acceleration."
+
+    - name: Check the KVM kernel modules are loaded
+      command: >
+        modprobe {{ item }}
+      with_items:
+        - kvm
+        - kvm_intel
+
+    - name: Install and configure ipervisor
+      yum:
+        state: installed
+        name:
+          - libvirt
+          - qemu-kvm
+          - virt-manager
+          - virt-install
+          - libguestfs-tools
+
+    - name: Enable and start libvirt server
+      systemd:
+        name: libvirtd
+        enabled: yes
+        state: started

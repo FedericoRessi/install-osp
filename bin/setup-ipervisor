@@ -6,6 +6,14 @@ TARGET_HOST_DIR=${TARGET_HOST_DIR:-$(pwd)/.install-osp}
 mkdir -p "${TARGET_HOST_DIR}"
 
 TARGET_HOST_FILE=${TARGET_HOST_FILE:-${TARGET_HOST_DIR}/host}
+if ! [ -f "${TARGET_HOST_FILE}" ]; then
+    # Remove host from remote host just in case
+    (
+        grep -v "${TARGET_HOST}" ~/.ssh/known_hosts > ~/.ssh/known_hosts.tmp
+        mv ~/.ssh/known_hosts.tmp ~/.ssh/known_hosts
+    ) || true
+fi
+
 TARGET_HOST=${1:-$(cat "${TARGET_HOST_FILE}" || true)}
 if [ "${TARGET_HOST}" == "" ]; then
 	echo "
@@ -14,6 +22,7 @@ if [ "${TARGET_HOST}" == "" ]; then
 	"
 	exit 1
 fi
+# Save target host to file for later use
 echo "${TARGET_HOST}" > "${TARGET_HOST_FILE}"
 
 TARGET_PORT=${TARGET_PORT:-22}
@@ -64,12 +73,6 @@ if ! grep -q -e '${TARGET_PUB_KEY}' ~/.ssh/authorized_keys; then
 fi
 chmod 600 ~/.ssh/authorized_keys
 "
-
-# Remove host from remote host just in case
-(
-	grep -v "${TARGET_HOST}" ~/.ssh/known_hosts > ~/.ssh/known_hosts.tmp
-	mv ~/.ssh/known_hosts.tmp ~/.ssh/known_hosts
-) || true
 
 
 # Run ansible playbook
