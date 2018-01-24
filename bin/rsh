@@ -12,4 +12,4 @@ if [ "${INSTALL_OSP_DIR:-}" == "" ]; then
     unset _get_install_osp_dir
 fi
 
-ssh -F "${INSTALL_OSP_DIR}/ssh_config" target "$@"
+ssh -t -F "${INSTALL_OSP_DIR}/ssh_config" target "$@"

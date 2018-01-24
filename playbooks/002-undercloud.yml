@@ -5,6 +5,10 @@
   vars:
     user: stack
     home: "/home/{{ user }}"
+    ip_addr: 192.168.122.253
+    netmask: 255.255.255.0
+    gateway: 192.168.122.1
+    dns: 192.168.122.1
 
   tasks:
 
@@ -22,25 +26,31 @@
             qemu-img create -f qcow2 -b /var/lib/libvirt/images/rhel7-guest.qcow2 /tmp/undercloud.qcow2
 
         - name: Customize underclow image
-          command: >
-            virt-customize -a /tmp/undercloud.qcow2 --root-password password:redhat --uninstall cloud-init
-
-        - name: Make sure that our undercloud machine has an interface on our default network
-          shell: >
-            virt-customize -a /tmp/undercloud.qcow2 --run-command '
-                cp /etc/sysconfig/network-scripts/ifcfg-eth{0,1} &&
-                sed -i s/DEVICE=.*/DEVICE=eth1/g /etc/sysconfig/network-scripts/ifcfg-eth1'
+          shell: |
+            virt-customize \
+              -a /tmp/undercloud.qcow2 \
+              --root-password password:redhat \
+              --uninstall cloud-init \
+              --run-command 'sed -i s/ONBOOT=.*/ONBOOT=no/g /etc/sysconfig/network-scripts/ifcfg-eth0' \
+              --run-command 'cat << EOF > /etc/sysconfig/network-scripts/ifcfg-eth1
+            DEVICE=eth1
+            ONBOOT=yes
+            IPADDR={{ ip_addr }}
+            NETMASK={{ netmask }}
+            GATEWAY={{ gateway }}
+            NM_CONTROLLED=no
+            DNS1={{ dns }}
+            EOF' \
+              --firstboot-command 'hostnamectl set-hostname --static undercloud'
 
         - name: Install underclow image
           command: >
             mv /tmp/undercloud.qcow2 /var/lib/libvirt/images/undercloud.qcow2
 
-        - name: Check underclow image exists
-          shell: >
-            qemu-img info /var/lib/libvirt/images/undercloud.qcow2 |
-              grep -e '^virtual size: 40G'
-          ignore_errors: true
-          register: has_underclow_image
+        - name: Remove undercloud from knwo_hosts file
+          shell: |
+            grep -v -e '^undercloud,' /root/.ssh/known_hosts > /tmp/known_hosts
+            mv /tmp/known_hosts /root/.ssh/known_hosts
 
         - name: Create undercloud VM
           command: >
@@ -59,23 +69,19 @@
       command:
         virsh --connect qemu:///system start undercloud
 
-    - name: get undercloud IP
+    - name: Write undercloud ip to /etc/hosts
       shell: |
-        virsh domifaddr undercloud |
-          awk '
-            ($3 == "ipv4"){
-              split($4,a,"/")
-              print a[1]
-              success=1
-            }
+        awk '
+          {
+            for(i = 1; i <= NF; i++){
+              if ($i == "undercloud")
+                next;
+            };
+            print $0
+          }
 
-            END{
-              if(success != 1)
-                exit(1)
-            }
-          '
-      ignore_errors: true
-      register: undercloud_ip
-
-    - debug:
-        msg: "undercloud_ip: {{ undercloud_ip.stdout }}"
+          END {
+            print "{{ ip_addr }}" " undercloud"
+          }
+          ' /etc/hosts > /tmp/hosts
+        mv /tmp/hosts /etc/hosts
