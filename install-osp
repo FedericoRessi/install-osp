@@ -117,7 +117,7 @@ PLAYBOOK_FIND_OPTIONS=($(
 ))
 
 PLAYBOOK_FILES=($(
-    find "${PLAYBOOK_DIR}" "${PLAYBOOK_FIND_OPTIONS[@]}"
+    find "${PLAYBOOK_DIR}" "${PLAYBOOK_FIND_OPTIONS[@]}" | sort -u
 ))
 if (( ${#PLAYBOOK_FILES[@]} == 0 )); then
     echo "Invalid playbook name(s): ${PLAYBOOK_NAMES[@]}"

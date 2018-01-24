@@ -1,0 +1,37 @@
+---
+- hosts: target
+  become: true
+
+  vars:
+    user: stack
+    home: "/home/{{ user }}"
+
+  tasks:
+
+    - name: Check underclow image exists
+      shell: >
+        qemu-img info /var/lib/libvirt/images/undercloud.qcow2 |
+          grep -e '^virtual size: 40G'
+      ignore_errors: true
+      register: has_underclow_image
+
+    - when: has_underclow_image|failed
+      block:
+
+        - name: Create undercloud image
+          command:
+            qemu-img create -f qcow2 -b /var/lib/libvirt/images/rhel7-guest.qcow2 /tmp/undercloud.qcow2
+
+        - name: Customize underclow image
+          command: >
+            virt-customize -a /tmp/undercloud.qcow2 --root-password password:redhat --uninstall cloud-init
+
+        - name: Make sure that our undercloud machine has an interface on our default network
+          shell: >
+            virt-customize -a /tmp/undercloud.qcow2 --run-command '
+                cp /etc/sysconfig/network-scripts/ifcfg-eth{0,1} &&
+                sed -i s/DEVICE=.*/DEVICE=eth1/g /etc/sysconfig/network-scripts/ifcfg-eth1'
+
+        - name: Install underclow image
+          command: >
+            mv /tmp/undercloud.qcow2 /var/lib/libvirt/images/undercloud.qcow2
