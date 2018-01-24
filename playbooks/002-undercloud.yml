@@ -8,14 +8,13 @@
 
   tasks:
 
-    - name: Check underclow image exists
-      shell: >
-        qemu-img info /var/lib/libvirt/images/undercloud.qcow2 |
-          grep -e '^virtual size: 40G'
+    - name: Check undercloud VM status
+      command: >
+        virsh domstate undercloud
       ignore_errors: true
-      register: has_underclow_image
+      register: undercloud_status
 
-    - when: has_underclow_image|failed
+    - when: undercloud_status|failed
       block:
 
         - name: Create undercloud image
@@ -35,3 +34,48 @@
         - name: Install underclow image
           command: >
             mv /tmp/undercloud.qcow2 /var/lib/libvirt/images/undercloud.qcow2
+
+        - name: Check underclow image exists
+          shell: >
+            qemu-img info /var/lib/libvirt/images/undercloud.qcow2 |
+              grep -e '^virtual size: 40G'
+          ignore_errors: true
+          register: has_underclow_image
+
+        - name: Create undercloud VM
+          command: >
+            virt-install \
+              --ram 8192 \
+              --vcpus 1 \
+              --os-variant rhel7 \
+              --disk path=/var/lib/libvirt/images/undercloud.qcow2,device=disk,bus=virtio,format=qcow2 \
+              --import --noautoconsole --vnc \
+              --network network:provisioning \
+              --network network:default \
+              --name undercloud
+
+    - name: Start undercloud VM
+      when: undercloud_status|succeeded and undercloud_status.stdout != "running"
+      command:
+        virsh --connect qemu:///system start undercloud
+
+    - name: get undercloud IP
+      shell: |
+        virsh domifaddr undercloud |
+          awk '
+            ($3 == "ipv4"){
+              split($4,a,"/")
+              print a[1]
+              success=1
+            }
+
+            END{
+              if(success != 1)
+                exit(1)
+            }
+          '
+      ignore_errors: true
+      register: undercloud_ip
+
+    - debug:
+        msg: "undercloud_ip: {{ undercloud_ip.stdout }}"

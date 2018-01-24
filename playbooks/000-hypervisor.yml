@@ -105,6 +105,7 @@
           - virt-install
           - libguestfs-tools
           - libguestfs-xfs
+          - net-tools
 
     - name: Enable and start libvirt server
       systemd:
