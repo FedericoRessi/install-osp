@@ -14,22 +14,50 @@ if ! [ -f "${TARGET_HOST_FILE}" ]; then
     ) || true
 fi
 
-TARGET_HOST=${1:-$(cat "${TARGET_HOST_FILE}" || true)}
+
+declare -a PLAYBOOK_NAMES
+while (( $# > 0 )); do
+    arg="$1"
+    shift
+
+    case $arg in
+        -t|--target)
+        TARGET_HOST="$1"
+        shift
+        ;;
+
+        -*)
+        echo "
+            Invalid option: $arg
+                $0 [-t <target-host>] [<play-book-names...>]
+        "
+        exit 1
+        ;;
+
+        *)
+        PLAYBOOK_NAMES+=("${arg}") # save it in an array for later
+        ;;
+    esac
+done
+
+
+# Get target host from file if not given
+TARGET_HOST=${TARGET_HOST:-$(cat "${TARGET_HOST_FILE}" || true)}
 if [ "${TARGET_HOST}" == "" ]; then
 	echo "
-		Please specify target host name:
-			$0 <target-host>
+		Please specify at least one target host name:
+            $0 -t <target-host> [<play-book-names...>]
 	"
-	exit 1
+	exit 2
 fi
+
 # Save target host to file for later use
 echo "${TARGET_HOST}" > "${TARGET_HOST_FILE}"
 
-TARGET_PORT=${TARGET_PORT:-22}
-TARGET_USER=${TARGET_USER:-root}
-
 
 # Generate SSH config file
+TARGET_PORT=${TARGET_PORT:-22}
+TARGET_USER=${TARGET_USER:-root}
 SSH_CONFIG_FILE=${SSH_CONFIG_FILE:-${TARGET_HOST_DIR}/ssh_config}
 echo "
 Host target
@@ -74,6 +102,37 @@ fi
 chmod 600 ~/.ssh/authorized_keys
 "
 
+# Get playbooks dir
+PLAYBOOK_DIR=${PLAYBOOK_DIR:-./playbooks}
 
-# Run ansible playbook
-ansible-playbook "--ssh-extra-args=-F '${SSH_CONFIG_FILE}'" -u "${TARGET_USER}" -i "${ANSIBLE_INVENTORY_FILE}" setup-ipervisor.yml
+# Get playbooks names
+if (( ${#PLAYBOOK_NAMES[@]} == 0 )); then
+    PLAYBOOK_NAMES=("*")
+fi
+
+PLAYBOOK_FIND_OPTIONS=($(
+    for name in "${PLAYBOOK_NAMES[@]}"; do
+        echo -name "*-${name}.yml"
+    done
+))
+
+PLAYBOOK_FILES=($(
+    find "${PLAYBOOK_DIR}" "${PLAYBOOK_FIND_OPTIONS[@]}"
+))
+if (( ${#PLAYBOOK_FILES[@]} == 0 )); then
+    echo "Invalid playbook name(s): ${PLAYBOOK_NAMES[@]}"
+    exit 3
+fi
+
+
+PLAYBOOK_OPTIONS=(
+    "--ssh-extra-args=-F '${SSH_CONFIG_FILE}'"
+    -u "${TARGET_USER}"
+    -i "${ANSIBLE_INVENTORY_FILE}"
+)
+
+# Run ansible playbooks
+for playbook_file in "${PLAYBOOK_FILES[@]}"; do
+    echo "Execute playbook ${playbook_file}"
+    ansible-playbook "${PLAYBOOK_OPTIONS[@]}" "${playbook_file}"
+done
