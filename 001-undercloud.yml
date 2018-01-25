@@ -1,10 +1,10 @@
 ---
-- hosts: target
+- hosts: hypervisor
   become: true
 
   vars:
-    user: stack
-    home: "/home/{{ user }}"
+    user: root
+    home: "/root"
     ip_addr: 192.168.122.253
     netmask: 255.255.255.0
     gateway: 192.168.122.1
@@ -29,8 +29,11 @@
           shell: |
             virt-customize \
               -a /tmp/undercloud.qcow2 \
+              --hostname undercloud \
               --root-password password:redhat \
               --uninstall cloud-init \
+              --copy-in '{{ home }}/.ssh:{{ home }}' \
+              --run-command 'chcon system_u:object_r:ssh_home_t:s0 {{ home }}/.ssh/authorized_keys' \
               --run-command 'sed -i s/ONBOOT=.*/ONBOOT=no/g /etc/sysconfig/network-scripts/ifcfg-eth0' \
               --run-command 'cat << EOF > /etc/sysconfig/network-scripts/ifcfg-eth1
             DEVICE=eth1
@@ -40,8 +43,7 @@
             GATEWAY={{ gateway }}
             NM_CONTROLLED=no
             DNS1={{ dns }}
-            EOF' \
-              --firstboot-command 'hostnamectl set-hostname --static undercloud'
+            EOF'
 
         - name: Install underclow image
           command: >
@@ -49,8 +51,8 @@
 
         - name: Remove undercloud from knwo_hosts file
           shell: |
-            grep -v -e '^undercloud,' /root/.ssh/known_hosts > /tmp/known_hosts
-            mv /tmp/known_hosts /root/.ssh/known_hosts
+            grep -v -e '^undercloud,' '{{ home }}/.ssh/known_hosts' > /tmp/known_hosts
+            mv /tmp/known_hosts '{{ home }}/.ssh/known_hosts'
 
         - name: Create undercloud VM
           command: >

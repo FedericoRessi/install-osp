@@ -2,7 +2,9 @@
 
 set -eu
 
-TARGET_HOST_DIR=${TARGET_HOST_DIR:-$(pwd)/.install-osp}
+export INSTALL_OSP_DIR=$(dirname $(realpath "$0"))
+
+export TARGET_HOST_DIR=${TARGET_HOST_DIR:-$(pwd)/.install-osp}
 mkdir -p "${TARGET_HOST_DIR}"
 
 TARGET_HOST_FILE=${TARGET_HOST_FILE:-${TARGET_HOST_DIR}/host}
@@ -21,7 +23,7 @@ while (( $# > 0 )); do
     shift
 
     case $arg in
-        -t|--target)
+        -h|--hypervisor)
         TARGET_HOST="$1"
         shift
         ;;
@@ -29,7 +31,7 @@ while (( $# > 0 )); do
         -*)
         echo "
             Invalid option: $arg
-                $0 [-t <target-host>] [<play-book-names...>]
+                $0 [-h <hypervisor-host>] [<play-book-names...>]
         "
         exit 1
         ;;
@@ -41,18 +43,22 @@ while (( $# > 0 )); do
 done
 
 
-# Get target host from file if not given
+# Get hypervisor host from file if not given
 TARGET_HOST=${TARGET_HOST:-$(cat "${TARGET_HOST_FILE}" || true)}
 if [ "${TARGET_HOST}" == "" ]; then
 	echo "
-		Please specify at least one target host name:
-            $0 -t <target-host> [<play-book-names...>]
+		Please specify at least one hypervisor host name:
+            $0 -t <hypervisor-host> [<play-book-names...>]
 	"
 	exit 2
 fi
 
-# Save target host to file for later use
+# Save hypervisor host to file for later use
 echo "${TARGET_HOST}" > "${TARGET_HOST_FILE}"
+
+# Detect SSH key file and creates it if not found
+export SSH_IDENTITY_FILE=${SSH_IDENTITY_FILE:-${TARGET_HOST_DIR}/id_rsa}
+[ -r "${SSH_IDENTITY_FILE}" ] || ssh-keygen -P "" -f "${SSH_IDENTITY_FILE}"
 
 
 # Generate SSH config file
@@ -60,11 +66,21 @@ TARGET_PORT=${TARGET_PORT:-22}
 TARGET_USER=${TARGET_USER:-root}
 SSH_CONFIG_FILE=${SSH_CONFIG_FILE:-${TARGET_HOST_DIR}/ssh_config}
 echo "
-Host target
-    HostName ${TARGET_HOST} 
-    Port ${TARGET_PORT}
+Host hypervisor
+    HostName ${TARGET_HOST}
     User ${TARGET_USER}
+    Port ${TARGET_PORT}
     StrictHostKeyChecking no
+    IdentityFile ${SSH_IDENTITY_FILE}
+
+Host undercloud
+    HostName undercloud
+    User ${TARGET_USER}
+    Port ${TARGET_PORT}
+    StrictHostKeyChecking no
+    IdentityFile ${SSH_IDENTITY_FILE}
+    ProxyJump hypervisor
+
 " > "${SSH_CONFIG_FILE}"
 
 
@@ -78,55 +94,38 @@ ssh_args = -F '${SSH_CONFIG_FILE}'
 
 # Generate hosts.ini
 ANSIBLE_INVENTORY_FILE=${ANSIBLE_INVENTORY_FILE:-${TARGET_HOST_DIR}/hosts.ini}
-echo "[target]
-${TARGET_HOST}:${TARGET_PORT}
+echo "
+[metal]
+hypervisor
 " > "${ANSIBLE_INVENTORY_FILE}"
 
 
-# Detect SSH key file and creates it if not found
-SSH_KEY_FILES=($(ls ~/.ssh/id_rsa ~/.ssh/id_dsa 2> /dev/null || true) ~/.ssh/id_rsa)
-TARGET_KEY_FILE=${TARGET_KEY_FILE:-${SSH_KEY_FILES[0]}}
-[ -r "${TARGET_KEY_FILE}" ] || ssh-keygen -P "" -f "${TARGET_KEY_FILE}"
-
-
 # Install SSH key file
-export TARGET_PUB_KEY=$(cat "${TARGET_KEY_FILE}.pub")
-ssh -F "${SSH_CONFIG_FILE}" target "
-set -eu
-mkdir -p ~/.ssh
-chown -fR \${USER}.\${USER} ~/.ssh
-chmod 700 ~/.ssh
-if ! grep -q -e '${TARGET_PUB_KEY}' ~/.ssh/authorized_keys; then
-	echo '${TARGET_PUB_KEY}' >> ~/.ssh/authorized_keys
-fi
-chmod 600 ~/.ssh/authorized_keys
-"
+ssh-copy-id -i "${SSH_IDENTITY_FILE}.pub" "${TARGET_USER}@${TARGET_HOST}"
+
 
 # Get playbooks dir
-PLAYBOOK_DIR=${PLAYBOOK_DIR:-./playbooks}
+PLAYBOOK_DIR=${PLAYBOOK_DIR:-${INSTALL_OSP_DIR}}
 
 # Get playbooks names
 if (( ${#PLAYBOOK_NAMES[@]} == 0 )); then
     PLAYBOOK_NAMES=("*")
 fi
 
-PLAYBOOK_FIND_OPTIONS=($(
+PLAYBOOK_FILES=($(
     for name in "${PLAYBOOK_NAMES[@]}"; do
-        echo -name "*-${name}.yml"
-    done
+        find "${PLAYBOOK_DIR}" -name "*-${name}.yml"
+    done | sort -u
 ))
 
-PLAYBOOK_FILES=($(
-    find "${PLAYBOOK_DIR}" "${PLAYBOOK_FIND_OPTIONS[@]}" | sort -u
-))
+
 if (( ${#PLAYBOOK_FILES[@]} == 0 )); then
     echo "Invalid playbook name(s): ${PLAYBOOK_NAMES[@]}"
     exit 3
 fi
 
-
 PLAYBOOK_OPTIONS=(
-    "--ssh-extra-args=-F '${SSH_CONFIG_FILE}'"
+    "--ssh-common-args=-F '${SSH_CONFIG_FILE}'"
     -u "${TARGET_USER}"
     -i "${ANSIBLE_INVENTORY_FILE}"
 )
