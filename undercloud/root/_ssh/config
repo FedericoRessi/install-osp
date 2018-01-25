@@ -1,4 +1,4 @@
-Host stack
+Host hypervisor
     HostName hypervisor
     User stack
     Port 22

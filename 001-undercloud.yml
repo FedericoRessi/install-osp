@@ -35,6 +35,11 @@
         state: present
         key: "{{ stack_pubkey.stdout }}"
 
+    - name: Allow stack user to user libvirt
+      copy:
+        src: hypervisor/etc/polkit-1/localauthority/50-local.d/50-libvirt-user-stack.pkla
+        dest: /etc/polkit-1/localauthority/50-local.d/50-libvirt-user-stack.pkla
+
     - name: Check undercloud VM status
       command: >
         virsh domstate undercloud
@@ -124,3 +129,33 @@
       copy:
         src: undercloud/root/_ssh/config
         dest: /root/.ssh/config
+
+    - name: Get ipervisor packages access RPM
+      get_url:
+        url: "http://rhos-release.virt.bos.redhat.com/repos/rhos-release/rhos-release-latest.noarch.rpm"
+        dest: /tmp/rhos-release-latest.noarch.rpm
+
+    - name: Enable ipervisor packages access
+      yum:
+        name: /tmp/rhos-release-latest.noarch.rpm
+        state: present
+
+    - name: Enable the latest OSP director and RHEL packages
+      shell: >
+        rhos-release 11-director
+      changed_when: false
+
+    - name: Upgrade all packages
+      yum:
+        name: "*"
+        state: latest
+
+    - name: Install libvirt packages
+      yum:
+        state: installed
+        name:
+          - libvirt
+
+    - name: Check libvert connectivity to stack@hypervisor
+      command: >
+        virsh --connect qemu+ssh://hypervisor/system list --all
