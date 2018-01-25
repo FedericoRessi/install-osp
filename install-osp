@@ -97,6 +97,10 @@ ANSIBLE_INVENTORY_FILE=${ANSIBLE_INVENTORY_FILE:-${TARGET_HOST_DIR}/hosts.ini}
 echo "
 [metal]
 hypervisor
+
+[cloud]
+undercloud
+
 " > "${ANSIBLE_INVENTORY_FILE}"
 
 
