@@ -5,19 +5,42 @@
   vars:
     user: root
     home: "/root"
-    ip_addr: 192.168.122.253
+    undercloud_ip: 192.168.122.253
     netmask: 255.255.255.0
     gateway: 192.168.122.1
     dns: 192.168.122.1
 
   tasks:
 
+    - name: Create stack user to be used from underclound
+      user:
+        name: stack
+        comment: "Undercloud stack user"
+
+    - name: Create stack user identity key for remote access
+      command:
+        ssh-keygen -b 2048 -t rsa -f {{ home }}/.ssh/stack-id_rsa -q -N ""
+      args:
+        creates: "{{ home }}/.ssh/stack-id_rsa"
+
+    - name: Read pubkey for stack user
+      command: >
+        cat "{{ home }}/.ssh/stack-id_rsa.pub"
+      register: stack_pubkey
+      changed_when: false
+
+    - name: Allow pubkey access to stack user
+      authorized_key:
+        user: stack
+        state: present
+        key: "{{ stack_pubkey.stdout }}"
+
     - name: Check undercloud VM status
       command: >
         virsh domstate undercloud
       register: undercloud_status
-      changed_when: False
-      failed_when: False
+      ignore_errors: true
+      changed_when: false
 
     - when: undercloud_status|failed
       block:
@@ -34,12 +57,12 @@
               --root-password password:redhat \
               --uninstall cloud-init \
               --copy-in '{{ home }}/.ssh:{{ home }}' \
-              --run-command 'chcon system_u:object_r:ssh_home_t:s0 {{ home }}/.ssh/authorized_keys' \
+              --run-command 'chcon system_u:object_r:ssh_home_t:s0 {{ home }}/.ssh {{ home }}/.ssh/authorized_keys' \
               --run-command 'sed -i s/ONBOOT=.*/ONBOOT=no/g /etc/sysconfig/network-scripts/ifcfg-eth0' \
               --run-command 'cat << EOF > /etc/sysconfig/network-scripts/ifcfg-eth1
             DEVICE=eth1
             ONBOOT=yes
-            IPADDR={{ ip_addr }}
+            IPADDR={{ undercloud_ip }}
             NETMASK={{ netmask }}
             GATEWAY={{ gateway }}
             NM_CONTROLLED=no
@@ -67,31 +90,21 @@
               --network network:default \
               --name undercloud
 
-        - name: Write undercloud ip to /etc/hosts
-          shell: |
-            awk '
-              {
-                for(i = 1; i <= NF; i++){
-                  if ($i == "undercloud")
-                    next;
-                };
-                print $0
-              }
-
-              END {
-                print "{{ ip_addr }}" " undercloud"
-              }
-              ' /etc/hosts > /tmp/hosts
-            mv /tmp/hosts /etc/hosts
+        - name: Autostart undercloud when restarting hypervisor
+          command:
+            virsh autostart undercloud
 
     - name: Start undercloud VM
       when: undercloud_status|succeeded and undercloud_status.stdout != "running"
       command:
-        virsh --connect qemu:///system start undercloud
+        virsh start undercloud
 
 
 - hosts: undercloud
   become: true
+
+  vars:
+    hypervisor_ip: 192.168.122.1
 
   tasks:
 
@@ -101,3 +114,13 @@
       register: check_hostname
       failed_when: check_hostname.stdout != "undercloud"
       changed_when: False
+
+    - name: Configure /etc/hosts file
+      copy:
+        src: undercloud/etc/hosts
+        dest: /etc/hosts
+
+    - name: Configure SSH client connections
+      copy:
+        src: undercloud/root/_ssh/config
+        dest: /root/.ssh/config

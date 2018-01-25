@@ -1,0 +1,6 @@
+Host stack
+    HostName hypervisor
+    User stack
+    Port 22
+    StrictHostKeyChecking no
+    IdentityFile /root/.ssh/stack-id_rsa
