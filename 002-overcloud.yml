@@ -4,10 +4,65 @@
 
   vars:
     image_dir: /var/lib/libvirt/images
+    nodes:
+      - name: ctrl01
+        ram: 16384
+        vcpus: 2
+        disks: [ctrl01]
+        vbmc_port: 6230
+
+      - name: ctrl02
+        ram: 16384
+        vcpus: 2
+        disks: [ctrl02]
+        vbmc_port: 6231
+
+      - name: ctrl03
+        ram: 16384
+        vcpus: 2
+        disks: [ctrl03]
+        vbmc_port: 6232
+
+      - name: compute01
+        ram: 4096
+        vcpus: 4
+        disks: [compute01]
+        vbmc_port: 6233
+
+      - name: compute02
+        ram: 4096
+        vcpus: 4
+        disks: [compute02]
+        vbmc_port: 6234
+
+      - name: ceph01
+        ram: 4096
+        vcpus: 2
+        disks: [ceph01, ceph01-storage]
+        vbmc_port: 6235
+
+      - name: ceph02
+        ram: 4096
+        vcpus: 2
+        disks: [ceph02, ceph02-storage]
+        vbmc_port: 6236
+
+      - name: ceph03
+        ram: 4096
+        vcpus: 2
+        disks: [ceph03, ceph03-storage]
+        vbmc_port: 6237
+
+      - name: networker
+        ram: 4096
+        vcpus: 2
+        disks: [networker]
+        vbmc_port: 6238
+
 
   tasks:
 
-    - name: List undercloud VMs
+    - name: List overcloud VMs
       shell: |
         virsh list --all | awk '
           ($2 ~ /^overcloud-/){
@@ -19,6 +74,7 @@
       register: list_undercloud_vms
 
     - name: Define VMs
+      with_items: "{{ nodes }}"
       when: item.name not in list_undercloud_vms.stdout_lines
       shell: >
         {% for disk in item.disks %}
@@ -45,49 +101,49 @@
           --dry-run --print-xml > /tmp/overcloud-{{ item.name }}.xml && \
         virsh define --file /tmp/overcloud-{{ item.name }}.xml
 
-      with_items:
+    - name: Install Virtual BMC
+      yum:
+        name:
+          - python-virtualbmc
+          - ipmitool
+        state: installed
 
-        - name: ctrl01
-          ram: 16384
-          vcpus: 2
-          disks: [ctrl01]
+    - name: Create systemd unit file for Virtual BMC service
+      copy:
+        src: hypervisor/usr/lib/systemd/system/virtualbmc@.service
+        dest: /usr/lib/systemd/system/virtualbmc@.service
 
-        - name: ctrl02
-          ram: 16384
-          vcpus: 2
-          disks: [ctrl02]
+    - name: List Virtual BMC nodes
+      shell: |
+        vbmc list | awk '
+          ($2 ~ /^overcloud-/){
+            sub(/^overcloud-/, "", $2)
+            print $2
+          }'
 
-        - name: ctrl03
-          ram: 16384
-          vcpus: 2
-          disks: [ctrl03]
+      changed_when: false
+      register: list_vbmc_vms
 
-        - name: compute01
-          ram: 4096
-          vcpus: 4
-          disks: [compute01]
+    - name: Add VMs to Virtual BMC
+      with_items: "{{ nodes }}"
+      when: item.name not in list_vbmc_vms.stdout_lines
+      command: >
+        vbmc add overcloud-{{ item.name }}
+          --port {{ item.vbmc_port }}
+          --username admin
+          --password redhat
 
-        - name: compute02
-          ram: 4096
-          vcpus: 4
-          disks: [compute02]
+    - name: Enable and start virtualbmc@overcloud-{{ item.name }} service
+      with_items: "{{ nodes }}"
+      systemd:
+        name: "virtualbmc@overcloud-{{ item.name }}"
+        enabled: true
+        state: started
 
-        - name: ceph01
-          ram: 4096
-          vcpus: 2
-          disks: [ceph01, ceph01-storage]
-
-        - name: ceph02
-          ram: 4096
-          vcpus: 2
-          disks: [ceph02, ceph02-storage]
-
-        - name: ceph03
-          ram: 4096
-          vcpus: 2
-          disks: [ceph03, ceph03-storage]
-
-        - name: networker
-          ram: 4096
-          vcpus: 2
-          disks: [networker]
+    - name: Close firewall ports for Virtual BMC from public zone
+      with_items: "{{ nodes }}"
+      firewalld:
+        port: "{{ item.vbmc_port }}/udp"
+        permanent: true
+        state: disabled
+        zone: public
