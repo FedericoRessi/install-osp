@@ -44,32 +44,45 @@
         src: hypervisor/etc/sysctl.d/98-rp-filter.conf
         dest: /etc/sysctl.d/98-rp-filter.conf
 
-    - name: Check for reboot hint
+    - name: Get last kernel
       shell: |
-        LAST_KERNEL=$(rpm -q --last kernel | awk 'NR==1{sub(/kernel-/,""); print $1}')
-        CURRENT_KERNEL=$(uname -r); if [ $LAST_KERNEL != $CURRENT_KERNEL ]; then
-          echo 'reboot'
-        else
-          echo 'no'
-        fi
+        rpm -q --last kernel |
+        awk '
+          {
+            sub(/kernel-/,"")
+            print $1
+            exit 0
+          }'
       changed_when: false
-      ignore_errors: true
-      register: reboot_hint
+      register: last_kernel
 
-    - when: reboot_hint.stdout.find("reboot") != -1
+    - name: Check current kernel
+      command: >
+        uname -r
+      register: current_kernel
+      changed_when: false
+
+    - when: last_kernel.stdout != current_kernel.stdout
       block:
 
         - name: Reboot {{ inventory_hostname }} node
           shell: >
-            sleep 2 &&
-            shutdown -r +1 "Reboot required to update kernel."
+            sleep 2 && reboot "Reboot required to update kernel."
+          ignore_errors: true
           async: 1
           poll: 0
-          ignore_errors: true
 
         - name: Wait for system to become reachable
           wait_for_connection:
-            timeout: 180
+            delay: 5
+            timeout: 300
+
+        - name: Check current kernel
+          command: >
+            uname -r
+          register: current_kernel
+          changed_when: false
+          failed_when: last_kernel.stdout != current_kernel.stdout
 
     - name: Install Squid proxy
       yum:
@@ -83,10 +96,12 @@
         state: started
 
     - name: Setup firewall rules for Squid
-      shell: |
-        firewall-cmd --permanent --add-service=squid
-        firewall-cmd --reload
-      changed_when: false
+      firewalld:
+        permanent: true
+        immediate: true
+        service: squid
+        zone: public
+        state: disabled
 
     - name: Check virtualization acceleration
       shell: >

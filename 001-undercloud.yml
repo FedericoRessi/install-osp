@@ -167,3 +167,4 @@
     - name: Check libvert connectivity to stack@hypervisor
       command: >
         virsh --connect qemu+ssh://hypervisor/system list --all
+      changed_when: false

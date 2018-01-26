@@ -104,28 +104,25 @@ undercloud
 " > "${ANSIBLE_INVENTORY_FILE}"
 
 
-# Install SSH key file
-ssh-copy-id -i "${SSH_IDENTITY_FILE}.pub" "${TARGET_USER}@${TARGET_HOST}"
-
-
 # Get playbooks dir
 PLAYBOOK_DIR=${PLAYBOOK_DIR:-${INSTALL_OSP_DIR}}
 
-# Get playbooks names
+# Get playbooks files
 if (( ${#PLAYBOOK_NAMES[@]} == 0 )); then
-    PLAYBOOK_NAMES=("*")
-fi
-
-PLAYBOOK_FILES=($(
+    PLAYBOOK_FILES=("main.yml")
+else
+    declare -a PLAYBOOK_FILES
     for name in "${PLAYBOOK_NAMES[@]}"; do
-        find "${PLAYBOOK_DIR}" -name "*-${name}.yml"
-    done | sort -u
-))
+        playbook_files=($(
+            find "${PLAYBOOK_DIR}" -maxdepth 1 -name "*-${name}.yml"
+        ))
 
+        if (( ${#playbook_files[@]} == 0 )); then
+            echo "Invalid playbook name: ${name}" >&2; exit 3
+        fi
 
-if (( ${#PLAYBOOK_FILES[@]} == 0 )); then
-    echo "Invalid playbook name(s): ${PLAYBOOK_NAMES[@]}"
-    exit 3
+        PLAYBOOK_FILES+=("${playbook_files[@]}")
+    done
 fi
 
 PLAYBOOK_OPTIONS=(
@@ -133,6 +130,9 @@ PLAYBOOK_OPTIONS=(
     -u "${TARGET_USER}"
     -i "${ANSIBLE_INVENTORY_FILE}"
 )
+
+# Install SSH key file
+ssh-copy-id -i "${SSH_IDENTITY_FILE}.pub" "${TARGET_USER}@${TARGET_HOST}"
 
 # Run ansible playbooks
 for playbook_file in "${PLAYBOOK_FILES[@]}"; do
