@@ -133,7 +133,7 @@
           --username admin
           --password redhat
 
-    - name: Enable and start virtualbmc@overcloud-{{ item.name }} service
+    - name: Enable and start virtualbmc@overcloud services
       with_items: "{{ nodes }}"
       systemd:
         name: "virtualbmc@overcloud-{{ item.name }}"
