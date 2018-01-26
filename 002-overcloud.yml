@@ -1,0 +1,93 @@
+---
+- hosts: hypervisor
+  become: true
+
+  vars:
+    image_dir: /var/lib/libvirt/images
+
+  tasks:
+
+    - name: List undercloud VMs
+      shell: |
+        virsh list --all | awk '
+          ($2 ~ /^overcloud-/){
+            sub(/^overcloud-/, "", $2)
+            print $2
+          }'
+
+      changed_when: false
+      register: list_undercloud_vms
+
+    - name: Define VMs
+      when: item.name not in list_undercloud_vms.stdout_lines
+      shell: >
+        {% for disk in item.disks %}
+        qemu-img create \
+          -f qcow2 \
+          -o preallocation=metadata \
+          {{ image_dir }}/overcloud-{{ disk }}.qcow2 \
+          60G
+        {% endfor %}
+        virt-install \
+          --ram {{ item.ram }} \
+          --vcpus {{ item.vcpus }} \
+          --os-variant rhel7 \
+          {% for disk in item.disks %} \
+          --disk path={{ image_dir }}/overcloud-{{ disk }}.qcow2,device=disk,bus=virtio,format=qcow2 \
+          {% endfor %} \
+          --noautoconsole \
+          --vnc \
+          --network network:provisioning \
+          --network network:default \
+          --network network:default \
+          --name overcloud-{{ item.name }} \
+          --cpu SandyBridge,+vmx \
+          --dry-run --print-xml > /tmp/overcloud-{{ item.name }}.xml && \
+        virsh define --file /tmp/overcloud-{{ item.name }}.xml
+
+      with_items:
+
+        - name: ctrl01
+          ram: 16384
+          vcpus: 2
+          disks: [ctrl01]
+
+        - name: ctrl02
+          ram: 16384
+          vcpus: 2
+          disks: [ctrl02]
+
+        - name: ctrl03
+          ram: 16384
+          vcpus: 2
+          disks: [ctrl03]
+
+        - name: compute01
+          ram: 4096
+          vcpus: 4
+          disks: [compute01]
+
+        - name: compute02
+          ram: 4096
+          vcpus: 4
+          disks: [compute02]
+
+        - name: ceph01
+          ram: 4096
+          vcpus: 2
+          disks: [ceph01, ceph01-storage]
+
+        - name: ceph02
+          ram: 4096
+          vcpus: 2
+          disks: [ceph02, ceph02-storage]
+
+        - name: ceph03
+          ram: 4096
+          vcpus: 2
+          disks: [ceph03, ceph03-storage]
+
+        - name: networker
+          ram: 4096
+          vcpus: 2
+          disks: [networker]
