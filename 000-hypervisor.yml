@@ -125,6 +125,20 @@
         enabled: yes
         state: started
 
+    - name: Check if DHCP is disabled on default network
+      shell: >
+        virsh net-dumpxml default |
+        grep -v "<range start='192.168.122.2' end='192.168.122.254'/>"
+      changed_when: false
+      ignore_errors: true
+      register: is_dhcp_disenabled_on_default_network
+
+    - name: Disable DHCP on default network
+      when: is_dhcp_disenabled_on_default_network|failed
+      command: >
+        virsh net-update default delete ip-dhcp-range
+          "<range start='192.168.122.2' end='192.168.122.254'/>" --live --config
+
     - name: Check provisioning network has been configured
       shell: >
         virsh net-list --persistent |
