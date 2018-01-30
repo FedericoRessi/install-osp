@@ -100,6 +100,7 @@
         state: installed
         name:
           - libvirt
+          - libguestfs-tools
 
     - name: Check libvert connectivity to stack@hypervisor
       command: >
@@ -128,3 +129,64 @@
         user: stack
         state: present
         key: "{{ stack_pubkey.stdout }}"
+
+    - name: Install IPMI tool
+      yum:
+        state: installed
+        name:
+          - ipmitool
+
+    - name: Check it can control the VMs via IPMI
+      become_user: stack
+      command: >
+        ipmitool -I lanplus -U admin -P redhat -H hypervisor -p 6230 power status
+      register: check_ipmi_connection
+      changed_when: false
+      failed_when: not check_ipmi_connection.stdout.startswith("Chassis Power is ")
+
+    - name: Copy undercloud.conf
+      command:
+        cp /usr/share/instack-undercloud/undercloud.conf.sample "{{ home }}/undercloud.conf"
+      args:
+        creates: "{{ home }}/undercloud.conf"
+
+    - name: Cunstomize undercloud.conf
+      ini_file:
+        path: "{{ home }}/undercloud.conf"
+        section: DEFAULT
+        option: '{{ item.option }}'
+        value: '{{ item.value }}'
+      with_items:
+
+        - option: local_ip
+          value: "172.16.0.1/24"
+
+        - option: undercloud_public_vip
+          value: "172.16.0.10"
+
+        - option: undercloud_admin_vip
+          value: "172.16.0.11"
+
+        - option: local_interface
+          value: "eth0"
+
+        - option: masquerade_network
+          value: "172.16.0.0/24"
+
+        - option: dhcp_start
+          value: "172.16.0.20"
+
+        - option: dhcp_end
+          value: "172.16.0.120"
+
+        - option: network_cidr
+          value: "172.16.0.0/24"
+
+        - option: network_gateway
+          value: "172.16.0.1"
+
+        - option: inspection_iprange
+          value: "172.16.0.150,172.16.0.180"
+
+        - option: generate_service_certificate
+          value: "true"

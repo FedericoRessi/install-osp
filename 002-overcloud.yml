@@ -4,6 +4,7 @@
 
   vars:
     image_dir: /var/lib/libvirt/images
+    hypervisor_ip: 192.168.122.1
     nodes:
       - name: ctrl01
         ram: 16384
@@ -147,3 +148,17 @@
         permanent: true
         state: disabled
         zone: public
+
+    - name: Open firewall ports for Virtual BMC from undercloud
+      with_items: "{{ nodes }}"
+      firewalld:
+        source: "{{ hypervisor_ip }}"
+        port: "{{ item.vbmc_port }}/udp"
+        state: enabled
+        permanent: true
+
+    - name: Bounce firewalld
+      service:
+        name: firewalld
+        enabled: yes
+        state: restarted
