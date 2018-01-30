@@ -16,13 +16,16 @@ if ! [ -f "${TARGET_HOST_FILE}" ]; then
     ) || true
 fi
 
+# Get playbooks dir
+PLAYBOOK_DIR=${PLAYBOOK_DIR:-${INSTALL_OSP_DIR}}
 
-declare -a PLAYBOOK_NAMES
+declare -a PLAYBOOK_FILES
+
 while (( $# > 0 )); do
     arg="$1"
     shift
 
-    case $arg in
+    case ${arg} in
         -h|--hypervisor)
         TARGET_HOST="$1"
         shift
@@ -37,7 +40,19 @@ while (( $# > 0 )); do
         ;;
 
         *)
-        PLAYBOOK_NAMES+=("${arg}") # save it in an array for later
+        if [ -f "${arg}" ]; then
+            PLAYBOOK_FILES+=("${arg}")
+        else
+            playbook_files=($(
+                find "${PLAYBOOK_DIR}" -maxdepth 1 -name "*-${arg}*.yml"
+            ))
+
+            if (( ${#playbook_files[@]} == 0 )); then
+                echo "Invalid playbook name: ${arg}" >&2; exit 3
+            fi
+
+            PLAYBOOK_FILES+=("${playbook_files[@]}")
+        fi
         ;;
     esac
 done
@@ -104,25 +119,9 @@ undercloud
 " > "${ANSIBLE_INVENTORY_FILE}"
 
 
-# Get playbooks dir
-PLAYBOOK_DIR=${PLAYBOOK_DIR:-${INSTALL_OSP_DIR}}
-
 # Get playbooks files
-if (( ${#PLAYBOOK_NAMES[@]} == 0 )); then
+if (( ${#PLAYBOOK_FILES[@]} == 0 )); then
     PLAYBOOK_FILES=("main.yml")
-else
-    declare -a PLAYBOOK_FILES
-    for name in "${PLAYBOOK_NAMES[@]}"; do
-        playbook_files=($(
-            find "${PLAYBOOK_DIR}" -maxdepth 1 -name "*-${name}.yml"
-        ))
-
-        if (( ${#playbook_files[@]} == 0 )); then
-            echo "Invalid playbook name: ${name}" >&2; exit 3
-        fi
-
-        PLAYBOOK_FILES+=("${playbook_files[@]}")
-    done
 fi
 
 PLAYBOOK_OPTIONS=(

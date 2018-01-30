@@ -1,0 +1,130 @@
+---
+
+- hosts: undercloud
+  become: true
+  gather_facts: no
+
+  vars:
+    hypervisor_ip: 192.168.122.1
+    home: /root
+
+  tasks:
+
+    - name: Wait for system to become reachable
+      wait_for_connection:
+        timeout: 60
+
+    - name: Gather facts for first time
+      setup:
+
+    - name: Check hostname
+      command: >
+        hostname
+      register: check_hostname
+      failed_when: check_hostname.stdout != "undercloud"
+      changed_when: False
+
+    - name: Configure /etc/hosts file
+      copy:
+        src: undercloud/etc/hosts
+        dest: /etc/hosts
+
+    - name: Configure SSH client connections
+      copy:
+        src: undercloud/root/_ssh/config
+        dest: /root/.ssh/config
+
+    - name: Get ipervisor packages access RPM
+      get_url:
+        url: "http://rhos-release.virt.bos.redhat.com/repos/rhos-release/rhos-release-latest.noarch.rpm"
+        dest: /tmp/rhos-release-latest.noarch.rpm
+
+    - name: Enable ipervisor packages access
+      yum:
+        name: /tmp/rhos-release-latest.noarch.rpm
+        state: present
+
+    - name: Enable the latest OSP director and RHEL packages
+      shell: >
+        rhos-release 11-director
+      changed_when: false
+
+    - name: Upgrade all packages
+      yum:
+        name: "*"
+        state: latest
+
+    - name: Get last kernel
+      shell: |
+        rpm -q --last kernel |
+        awk '
+          {
+            sub(/kernel-/,"")
+            print $1
+            exit 0
+          }'
+      changed_when: false
+      register: last_kernel
+
+    - name: Check current kernel
+      command: >
+        uname -r
+      register: current_kernel
+      changed_when: false
+
+    - when: last_kernel.stdout != current_kernel.stdout
+      block:
+
+        - name: Reboot {{ inventory_hostname }} node
+          shell: >
+            sleep 2 && reboot "Reboot required to update kernel."
+          ignore_errors: true
+          async: 1
+          poll: 0
+
+        - name: Wait for system to become reachable
+          wait_for_connection:
+            delay: 5
+            timeout: 300
+
+        - name: Check current kernel
+          command: >
+            uname -r
+          register: current_kernel
+          changed_when: false
+          failed_when: last_kernel.stdout != current_kernel.stdout
+
+
+    - name: Install libvirt packages
+      yum:
+        state: installed
+        name:
+          - libvirt
+
+    - name: Check libvert connectivity to stack@hypervisor
+      command: >
+        virsh --connect qemu+ssh://hypervisor/system list --all
+      changed_when: false
+
+    - name: Install TripleO client
+      yum:
+        state: installed
+        name:
+          - python-tripleoclient
+
+    - name: Create stack user to be used from underclound
+      user:
+        name: stack
+        comment: "Undercloud stack user"
+
+    - name: Read pubkey for stack user
+      command: >
+        cat "{{ home }}/.ssh/stack-id_rsa.pub"
+      register: stack_pubkey
+      changed_when: false
+
+    - name: Allow pubkey access to stack user
+      authorized_key:
+        user: stack
+        state: present
+        key: "{{ stack_pubkey.stdout }}"
