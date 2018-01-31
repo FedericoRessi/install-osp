@@ -17,15 +17,20 @@
         name: stack
         comment: "Undercloud stack user"
 
+    - name: Configure SSH client connections
+      copy:
+        src: common/ssh/config
+        dest: "{{ home }}/.ssh/config"
+
     - name: Create stack user identity key for remote access
       command:
-        ssh-keygen -b 2048 -t rsa -f {{ home }}/.ssh/stack-id_rsa -q -N ""
+        ssh-keygen -b 2048 -t rsa -f "{{ home }}/.ssh/id_rsa" -q -N ""
       args:
-        creates: "{{ home }}/.ssh/stack-id_rsa"
+        creates: "{{ home }}/.ssh/id_rsa"
 
     - name: Read pubkey for stack user
       command: >
-        cat "{{ home }}/.ssh/stack-id_rsa.pub"
+        cat "{{ home }}/.ssh/id_rsa.pub"
       register: stack_pubkey
       changed_when: false
 
@@ -45,7 +50,7 @@
         virsh domstate undercloud
       register: undercloud_status
       ignore_errors: true
-      changed_when: false
+      changed_when: undercloud_status|failed
 
     - when: undercloud_status|failed
       block:
@@ -58,7 +63,6 @@
           shell: |
             virt-customize \
               -a /tmp/undercloud.qcow2 \
-              --hostname undercloud \
               --root-password password:redhat \
               --uninstall cloud-init \
               --copy-in '{{ home }}/.ssh:{{ home }}' \

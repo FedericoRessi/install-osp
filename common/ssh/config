@@ -3,11 +3,9 @@ Host hypervisor
     User stack
     Port 22
     StrictHostKeyChecking no
-    IdentityFile /root/.ssh/stack-id_rsa
 
 Host undercloud
     HostName undercloud
     User stack
     Port 22
     StrictHostKeyChecking no
-    IdentityFile /root/.ssh/stack-id_rsa

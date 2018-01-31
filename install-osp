@@ -122,6 +122,8 @@ undercloud
 # Get playbooks files
 if (( ${#PLAYBOOK_FILES[@]} == 0 )); then
     PLAYBOOK_FILES=("main.yml")
+else
+    PLAYBOOK_FILES=($(IFS=$'\n'; sort <<< "${PLAYBOOK_FILES[*]}"))
 fi
 
 PLAYBOOK_OPTIONS=(

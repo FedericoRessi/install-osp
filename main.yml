@@ -1,7 +1,11 @@
 ---
 
-- import_playbook: 000-hypervisor.yml
+- import_playbook: 00-hypervisor.yml
 
-- import_playbook: 001-undercloud.yml
+- import_playbook: 01-undercloud-create.yml
 
-- import_playbook: 002-overcloud.yml
+- import_playbook: 02-overcloud.yml
+
+- import_playbook: 10-undercloud-configure.yml
+
+- import_playbook: 11-undercloud-install.yml

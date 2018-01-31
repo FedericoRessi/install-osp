@@ -17,22 +17,22 @@
     - name: Gather facts for first time
       setup:
 
-    - name: Check hostname
-      command: >
-        hostname
-      register: check_hostname
-      failed_when: check_hostname.stdout != "undercloud"
-      changed_when: False
+    - name: Set hostname
+      hostname:
+        name: undercloud
+      register: set_hostname
+
+    - name: Restart network manager service
+      when: set_hostname|changed
+      systemd:
+        name: network
+        enabled: yes
+        state: restarted
 
     - name: Configure /etc/hosts file
       copy:
         src: undercloud/etc/hosts
         dest: /etc/hosts
-
-    - name: Configure SSH client connections
-      copy:
-        src: undercloud/root/_ssh/config
-        dest: /root/.ssh/config
 
     - name: Get ipervisor packages access RPM
       get_url:
@@ -102,11 +102,6 @@
           - libvirt
           - libguestfs-tools
 
-    - name: Check libvert connectivity to stack@hypervisor
-      command: >
-        virsh --connect qemu+ssh://hypervisor/system list --all
-      changed_when: false
-
     - name: Install TripleO client
       yum:
         state: installed
@@ -117,10 +112,20 @@
       user:
         name: stack
         comment: "Undercloud stack user"
+        state: present
+        createhome: yes
+
+    - name: Allow passwordless sudo to stack user
+      lineinfile:
+        path: /etc/sudoers
+        state: present
+        regexp: '^stack ALL='
+        line: 'stack ALL=(ALL) NOPASSWD: ALL'
+        validate: '/usr/sbin/visudo -cf %s'
 
     - name: Read pubkey for stack user
       command: >
-        cat "{{ home }}/.ssh/stack-id_rsa.pub"
+        cat "{{ home }}/.ssh/id_rsa.pub"
       register: stack_pubkey
       changed_when: false
 
@@ -130,63 +135,29 @@
         state: present
         key: "{{ stack_pubkey.stdout }}"
 
+    - name: Copy ssh keys files
+      copy:
+        src: "{{ home }}/.ssh/{{ item }}"
+        dest: "/home/stack/.ssh"
+        remote_src: yes
+        owner: stack
+        group: stack
+        mode: 0600
+
+      with_items:
+        - id_rsa
+        - id_rsa.pub
+
+    - name: Configure SSH client connections
+      copy:
+        src: common/ssh/config
+        dest: "/home/stack/.ssh/config"
+        owner: stack
+        group: stack
+        mode: 0600
+
     - name: Install IPMI tool
       yum:
         state: installed
         name:
           - ipmitool
-
-    - name: Check it can control the VMs via IPMI
-      become_user: stack
-      command: >
-        ipmitool -I lanplus -U admin -P redhat -H hypervisor -p 6230 power status
-      register: check_ipmi_connection
-      changed_when: false
-      failed_when: not check_ipmi_connection.stdout.startswith("Chassis Power is ")
-
-    - name: Copy undercloud.conf
-      command:
-        cp /usr/share/instack-undercloud/undercloud.conf.sample "{{ home }}/undercloud.conf"
-      args:
-        creates: "{{ home }}/undercloud.conf"
-
-    - name: Cunstomize undercloud.conf
-      ini_file:
-        path: "{{ home }}/undercloud.conf"
-        section: DEFAULT
-        option: '{{ item.option }}'
-        value: '{{ item.value }}'
-      with_items:
-
-        - option: local_ip
-          value: "172.16.0.1/24"
-
-        - option: undercloud_public_vip
-          value: "172.16.0.10"
-
-        - option: undercloud_admin_vip
-          value: "172.16.0.11"
-
-        - option: local_interface
-          value: "eth0"
-
-        - option: masquerade_network
-          value: "172.16.0.0/24"
-
-        - option: dhcp_start
-          value: "172.16.0.20"
-
-        - option: dhcp_end
-          value: "172.16.0.120"
-
-        - option: network_cidr
-          value: "172.16.0.0/24"
-
-        - option: network_gateway
-          value: "172.16.0.1"
-
-        - option: inspection_iprange
-          value: "172.16.0.150,172.16.0.180"
-
-        - option: generate_service_certificate
-          value: "true"
