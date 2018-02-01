@@ -1,0 +1,38 @@
+- hosts: undercloud
+  become: true
+  become_user: stack
+
+  vars:
+    home: /home/stack
+
+  tasks:
+
+    - name: Install the OSP 11 image package
+      become_user: root
+      yum:
+        name: rhosp-director-images
+        state: installed
+
+    - name: Create directory for images
+      file:
+        path: "{{ home }}/images"
+        state: directory
+      register: create_images_dir
+
+    - name: Extract images
+      when: create_images_dir|changed
+      unarchive:
+        src: /usr/share/rhosp-director-images/ironic-python-agent.tar
+        dest: "{{ home }}/images"
+
+    - name: Download overcloud-full-osp10.tar
+      get_url:
+        url: http://10.12.50.1/pub/osp10-images/overcloud-full-osp10.tar
+        dest: /tmp
+      register: download_overcloud_osp10
+
+    - name: Extract OSP 10 images
+      when: download_overcloud_osp10|changed
+      unarchive:
+        src: /tmp/overcloud-full-osp10.tar
+        dest: "{{ home }}/images"

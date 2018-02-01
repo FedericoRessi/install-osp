@@ -148,8 +148,10 @@
         port: "{{ item.vbmc_port }}/udp"
         state: enabled
         permanent: true
+      register: open_vbmc_ports
 
-    - name: Bounce firewalld
+    - name: Restart firewalld
+      when: open_vbmc_ports|changed
       service:
         name: firewalld
         enabled: yes
