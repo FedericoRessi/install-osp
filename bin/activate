@@ -1,0 +1,18 @@
+if ! which realpath; then
+    realpath() {
+        python -c "
+
+import os, sys
+for arg in sys.argv[1:]:
+    print(os.path.realpath(arg))" "$@"
+
+    }
+fi
+
+export INSTALL_OSP_DIR=${INSTALL_OSP_DIR:-$(realpath "${BASH_SOURCE[0]}/../..")}
+export INSTALL_OSP_SSH_DIR=${INSTALL_OSP_SSH_DIR:-${INSTALL_OSP_DIR}/.ssh}
+
+if [ "${INSTALL_OSP_BIN_DIR:-}" == "" ]; then
+    export INSTALL_OSP_BIN_DIR="${INSTALL_OSP_DIR}/bin"
+    export PATH="${INSTALL_OSP_BIN_DIR}:${PATH}"
+fi

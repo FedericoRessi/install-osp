@@ -2,22 +2,11 @@
 
 set -eu
 
-if ! which realpath; then
-    realpath() {
-        python -c "
-
-import os, sys
-for arg in sys.argv[1:]:
-    print(os.path.realpath(arg))" "$@"
-
-    }
-fi
-
-
-export INSTALL_OSP_DIR=$(dirname $(realpath "$0"))
+source "$(dirname $0)/bin/activate"
 
 export HYPERVISOR_DIR=${HYPERVISOR_DIR:-$(pwd)/.install-osp}
-mkdir -p "${HYPERVISOR_DIR}"
+mkdir -p "${HYPERVISOR_DIR}" "${INSTALL_OSP_SSH_DIR}"
+
 
 # Get playbooks dir
 PLAYBOOK_DIR=${PLAYBOOK_DIR:-${INSTALL_OSP_DIR}}
@@ -79,7 +68,7 @@ if [ "${HYPERVISOR}" == "" ]; then
 fi
 
 # Detect SSH key file and creates it if not found
-export SSH_IDENTITY_FILE=${SSH_IDENTITY_FILE:-${HYPERVISOR_DIR}/id_rsa}
+export SSH_IDENTITY_FILE=${SSH_IDENTITY_FILE:-${INSTALL_OSP_SSH_DIR}/id_rsa}
 if ! [ -r "${SSH_IDENTITY_FILE}" ]; then
     ssh-keygen -P "" -f "${SSH_IDENTITY_FILE}"
 fi
@@ -98,7 +87,7 @@ echo "${PROXY_JUMP}" > "${PROXY_JUMP_FILE}"
 
 # Generate SSH config file
 HYPERVISOR_PORT=${HYPERVISOR_PORT:-22}
-SSH_CONFIG_FILE=${SSH_CONFIG_FILE:-${HYPERVISOR_DIR}/ssh_config}
+SSH_CONFIG_FILE=${SSH_CONFIG_FILE:-${INSTALL_OSP_SSH_DIR}/config}
 echo "
 Host hypervisor
     HostName ${HYPERVISOR}
@@ -147,6 +136,8 @@ if (( ${#PLAYBOOK_FILES[@]} == 0 )); then
 else
     PLAYBOOK_FILES=($(IFS=$'\n'; sort <<< "${PLAYBOOK_FILES[*]}"))
 fi
+
+ssh-copy-id -i "${SSH_IDENTITY_FILE}" hypervisor
 
 PLAYBOOK_OPTIONS=(
     "--ssh-common-args=-F '${SSH_CONFIG_FILE}'"

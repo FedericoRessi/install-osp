@@ -141,14 +141,6 @@
         enabled: true
         state: started
 
-    - name: Close firewall ports for Virtual BMC from public zone
-      with_items: "{{ nodes }}"
-      firewalld:
-        port: "{{ item.vbmc_port }}/udp"
-        permanent: true
-        state: disabled
-        zone: public
-
     - name: Open firewall ports for Virtual BMC from undercloud
       with_items: "{{ nodes }}"
       firewalld:
