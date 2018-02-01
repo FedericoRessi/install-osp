@@ -1,0 +1,7 @@
+#!/bin/bash
+
+set -eu
+
+source "$(dirname $0)/activate"
+
+"${SSH:-/usr/bin/ssh}" -F "${INSTALL_OSP_SSH_DIR}/config" "$@"

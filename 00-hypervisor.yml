@@ -13,7 +13,7 @@
       authorized_key:
         user: root
         state: present
-        key: "{{ lookup('file', '.install-osp/id_rsa.pub') }}"
+        key: "{{ lookup('file', '.ssh/id_rsa.pub') }}"
 
     - name: Get ipervisor packages access RPM
       get_url:
