@@ -1,4 +1,4 @@
-if ! which realpath; then
+if ! which realpath > /dev/null 2>&1; then
     realpath() {
         python -c "
 
@@ -9,7 +9,7 @@ for arg in sys.argv[1:]:
     }
 fi
 
-export INSTALL_OSP_DIR=${INSTALL_OSP_DIR:-$(realpath "${BASH_SOURCE[0]}/../..")}
+export INSTALL_OSP_DIR=${INSTALL_OSP_DIR:-$(realpath "$(dirname ${BASH_SOURCE[0]})/..")}
 export INSTALL_OSP_SSH_DIR=${INSTALL_OSP_SSH_DIR:-${INSTALL_OSP_DIR}/.ssh}
 
 if [ "${INSTALL_OSP_BIN_DIR:-}" == "" ]; then
