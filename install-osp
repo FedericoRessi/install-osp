@@ -2,19 +2,22 @@
 
 set -eu
 
+if ! which realpath; then
+    realpath() {
+        python -c "
+
+import os, sys
+for arg in sys.argv[1:]:
+    print(os.path.realpath(arg))" "$@"
+
+    }
+fi
+
+
 export INSTALL_OSP_DIR=$(dirname $(realpath "$0"))
 
-export TARGET_HOST_DIR=${TARGET_HOST_DIR:-$(pwd)/.install-osp}
-mkdir -p "${TARGET_HOST_DIR}"
-
-TARGET_HOST_FILE=${TARGET_HOST_FILE:-${TARGET_HOST_DIR}/host}
-if ! [ -f "${TARGET_HOST_FILE}" ]; then
-    # Remove host from remote host just in case
-    (
-        grep -v "${TARGET_HOST}" ~/.ssh/known_hosts > ~/.ssh/known_hosts.tmp
-        mv ~/.ssh/known_hosts.tmp ~/.ssh/known_hosts
-    ) || true
-fi
+export HYPERVISOR_DIR=${HYPERVISOR_DIR:-$(pwd)/.install-osp}
+mkdir -p "${HYPERVISOR_DIR}"
 
 # Get playbooks dir
 PLAYBOOK_DIR=${PLAYBOOK_DIR:-${INSTALL_OSP_DIR}}
@@ -26,8 +29,14 @@ while (( $# > 0 )); do
     shift
 
     case ${arg} in
+
         -h|--hypervisor)
-        TARGET_HOST="$1"
+        HYPERVISOR="$1"
+        shift
+        ;;
+
+        -p|--proxy)
+        PROXY_JUMP="$1"
         shift
         ;;
 
@@ -57,41 +66,54 @@ while (( $# > 0 )); do
     esac
 done
 
+HYPERVISOR_FILE=${HYPERVISOR_FILE:-${HYPERVISOR_DIR}/hypervisor}
 
 # Get hypervisor host from file if not given
-TARGET_HOST=${TARGET_HOST:-$(cat "${TARGET_HOST_FILE}" || true)}
-if [ "${TARGET_HOST}" == "" ]; then
-	echo "
-		Please specify at least one hypervisor host name:
-            $0 -t <hypervisor-host> [<play-book-names...>]
-	"
-	exit 2
+HYPERVISOR=${HYPERVISOR:-$(cat "${HYPERVISOR_FILE}" || true)}
+if [ "${HYPERVISOR}" == "" ]; then
+    echo "
+        Please specify at least one hypervisor host name:
+            $0 -h <hypervisor-host> [<play-book-names...>]
+    "
+    exit 2
 fi
 
-# Save hypervisor host to file for later use
-echo "${TARGET_HOST}" > "${TARGET_HOST_FILE}"
-
 # Detect SSH key file and creates it if not found
-export SSH_IDENTITY_FILE=${SSH_IDENTITY_FILE:-${TARGET_HOST_DIR}/id_rsa}
-[ -r "${SSH_IDENTITY_FILE}" ] || ssh-keygen -P "" -f "${SSH_IDENTITY_FILE}"
+export SSH_IDENTITY_FILE=${SSH_IDENTITY_FILE:-${HYPERVISOR_DIR}/id_rsa}
+if ! [ -r "${SSH_IDENTITY_FILE}" ]; then
+    ssh-keygen -P "" -f "${SSH_IDENTITY_FILE}"
+fi
+
+PROXY_JUMP_FILE=${PROXY_JUMP_FILE:-${HYPERVISOR_DIR}/proxy}
+PROXY_JUMP=${PROXY_JUMP:-$(cat "${PROXY_JUMP_FILE}" || true)}
+
+if [ "${PROXY_JUMP}" != "" ]; then
+    PROXY_JUMP_OPTION="ProxyJump ${PROXY_JUMP}"
+fi
+
+# Save options to file for later use
+echo "${HYPERVISOR}" > "${HYPERVISOR_FILE}"
+echo "${PROXY_JUMP}" > "${PROXY_JUMP_FILE}"
 
 
 # Generate SSH config file
-TARGET_PORT=${TARGET_PORT:-22}
-TARGET_USER=${TARGET_USER:-root}
-SSH_CONFIG_FILE=${SSH_CONFIG_FILE:-${TARGET_HOST_DIR}/ssh_config}
+HYPERVISOR_PORT=${HYPERVISOR_PORT:-22}
+SSH_CONFIG_FILE=${SSH_CONFIG_FILE:-${HYPERVISOR_DIR}/ssh_config}
 echo "
 Host hypervisor
-    HostName ${TARGET_HOST}
-    User ${TARGET_USER}
-    Port ${TARGET_PORT}
+    HostName ${HYPERVISOR}
+    User root
+    Port ${HYPERVISOR_PORT}
+    UserKnownHostsFile /dev/null
     StrictHostKeyChecking no
     IdentityFile ${SSH_IDENTITY_FILE}
+    ${PROXY_JUMP_OPTION:-}
 
 Host undercloud
     HostName undercloud
-    User ${TARGET_USER}
-    Port ${TARGET_PORT}
+    User root
+    Port ${HYPERVISOR_PORT}
+    UserKnownHostsFile /dev/null
     StrictHostKeyChecking no
     IdentityFile ${SSH_IDENTITY_FILE}
     ProxyJump hypervisor
@@ -100,7 +122,7 @@ Host undercloud
 
 
 # Generate ansible config file
-ANSIBLE_CONFIG_FILE=${ANSIBLE_CONFIG_FILE:-${TARGET_HOST_DIR}/ansible.cfg}
+ANSIBLE_CONFIG_FILE=${ANSIBLE_CONFIG_FILE:-${HYPERVISOR_DIR}/ansible.cfg}
 echo "
 [ssh_connection]
 ssh_args = -F '${SSH_CONFIG_FILE}'
@@ -108,7 +130,7 @@ ssh_args = -F '${SSH_CONFIG_FILE}'
 
 
 # Generate hosts.ini
-ANSIBLE_INVENTORY_FILE=${ANSIBLE_INVENTORY_FILE:-${TARGET_HOST_DIR}/hosts.ini}
+ANSIBLE_INVENTORY_FILE=${ANSIBLE_INVENTORY_FILE:-${HYPERVISOR_DIR}/hosts.ini}
 echo "
 [metal]
 hypervisor
@@ -128,12 +150,8 @@ fi
 
 PLAYBOOK_OPTIONS=(
     "--ssh-common-args=-F '${SSH_CONFIG_FILE}'"
-    -u "${TARGET_USER}"
     -i "${ANSIBLE_INVENTORY_FILE}"
 )
-
-# Install SSH key file
-ssh-copy-id -i "${SSH_IDENTITY_FILE}.pub" "${TARGET_USER}@${TARGET_HOST}"
 
 # Run ansible playbooks
 for playbook_file in "${PLAYBOOK_FILES[@]}"; do

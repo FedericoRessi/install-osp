@@ -9,6 +9,12 @@
 
   tasks:
 
+    - name: Authorize SSH publick key
+      authorized_key:
+        user: root
+        state: present
+        key: "{{ lookup('file', '.install-osp/id_rsa.pub') }}"
+
     - name: Get ipervisor packages access RPM
       get_url:
         url: "http://rhos-release.virt.bos.redhat.com/repos/rhos-release/rhos-release-latest.noarch.rpm"

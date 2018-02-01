@@ -22,6 +22,12 @@
         name: undercloud
       register: set_hostname
 
+    - name: Authorize SSH publick key
+      authorized_key:
+        user: root
+        state: present
+        key: "{{ lookup('file', '.install-osp/id_rsa.pub') }}"
+
     - name: Restart network manager service
       when: set_hostname|changed
       systemd:
