@@ -1,0 +1,93 @@
+- hosts: undercloud
+  become: true
+  become_user: stack
+
+  vars:
+    home: /home/stack
+
+  tasks:
+
+    - name: Get overcloud image list
+      shell: |
+        source "{{ home }}/stackrc"
+        openstack image list -f value -c Name
+
+      changed_when: false
+      register: list_images
+
+    - when: ('bm-deploy-kernel' not in list_images.stdout_lines) or
+            ('bm-deploy-ramdisk' not in list_images.stdout_lines) or
+            ('overcloud-full' not in list_images.stdout_lines) or
+            ('overcloud-full-initrd' not in list_images.stdout_lines) or
+            ('overcloud-full-vmlinuz' not in list_images.stdout_lines)
+
+      block:
+
+        - name: Install the OSP 11 image package
+          become_user: root
+          yum:
+            name: rhosp-director-images
+            state: installed
+
+        - name: Create directory for images
+          file:
+            path: "{{ home }}/images"
+            state: directory
+          register: create_images_dir
+
+        - name: Extract images
+          command:
+            tar -xvf /usr/share/rhosp-director-images/ironic-python-agent.tar '{{ item }}'
+          args:
+            chdir: "{{ home }}/images"
+            creates: "{{ home }}/images/{{ item }}"
+            warn: false
+          with_items:
+            - ironic-python-agent.initramfs
+            - ironic-python-agent.kernel
+
+        - name: Download overcloud-full-osp10.tar
+          get_url:
+            url: http://10.12.50.1/pub/osp10-images/overcloud-full-osp10.tar
+            dest: /tmp/overcloud-full-osp10.tar
+          register: download_overcloud_osp10
+
+        - name: Extract OSP 10 images
+          command:
+            tar -xvf /tmp/overcloud-full-osp10.tar '{{ item }}'
+          args:
+            chdir: "{{ home }}/images"
+            creates: "{{ home }}/images/{{ item }}"
+            warn: false
+          with_items:
+            - overcloud-full.qcow2
+            - overcloud-full.initrd
+            - overcloud-full.vmlinuz
+
+        - name: Customize overcloud full image
+          shell: >
+            virt-customize \
+              -a ~/images/overcloud-full.qcow2 \
+              --root-password password:redhat \
+              --run-command '
+                rpm -ivh http://rhos-release.virt.bos.redhat.com/repos/rhos-release/rhos-release-latest.noarch.rpm &&
+                rhos-release 10-director'
+
+        - name: Upload overcloud images
+          shell: |
+            source "{{ home }}/stackrc"
+            openstack overcloud image upload --image-path "{{ home }}/images/"
+
+        - name: Get overcloud image list
+          shell: |
+            source "{{ home }}/stackrc"
+            openstack image list -f value -c Name
+
+          changed_when: false
+          register: list_images
+          failed_when:
+            ('bm-deploy-kernel' not in list_images.stdout_lines) or
+            ('bm-deploy-ramdisk' not in list_images.stdout_lines) or
+            ('overcloud-full' not in list_images.stdout_lines) or
+            ('overcloud-full-initrd' not in list_images.stdout_lines) or
+            ('overcloud-full-vmlinuz' not in list_images.stdout_lines)
