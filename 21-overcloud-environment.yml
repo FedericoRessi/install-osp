@@ -1,0 +1,131 @@
+---
+- hosts: undercloud
+  become: true
+  become_user: stack
+
+  vars:
+    home: /home/stack
+    env_file: '{{ home }}/instackenv.json'
+    nodes:
+      - name: ctrl01
+        vbmc_port: 6230
+        profile: control
+
+      - name: ctrl02
+        vbmc_port: 6231
+        profile: control
+
+      - name: ctrl03
+        vbmc_port: 6232
+        profile: control
+
+      - name: compute01
+        vbmc_port: 6233
+        profile: compute
+
+      - name: compute02
+        vbmc_port: 6234
+        profile: compute
+
+      - name: ceph01
+        vbmc_port: 6235
+        profile: ceph-storage
+
+      - name: ceph02
+        vbmc_port: 6236
+        profile: ceph-storage
+
+      - name: ceph03
+        vbmc_port: 6237
+        profile: ceph-storage
+
+      - name: networker
+        vbmc_port: 6238
+        profile: networker
+
+  tasks:
+
+    - name: Validate environment file
+      slurp:
+        src: '{{ env_file }}'
+      register: check_env_file
+      ignore_errors: true
+      failed_when: >
+        (
+          check_env_file['content'] |
+          b64decode |
+          from_json |
+          json_query('nodes') |
+          length
+        ) != (
+          nodes |
+          length
+        )
+
+    - when: check_env_file | failed
+      block:
+
+        - name: Get MAC addresses
+          shell: >
+            virsh -c qemu+ssh://hypervisor/system domiflist "overcloud-{{ item.name }}" |
+            awk '
+              $3 == "provisioning" {
+                print $5
+              }
+            '
+          register: get_mac_addresses
+          with_items: '{{ nodes }}'
+
+        - name: Populate MAC addresses
+          set_fact:
+            mac_addresses: >
+              {{
+                mac_addresses |
+                default({}) |
+                combine({item.item.name: item.stdout})
+              }}
+          with_items: "{{ get_mac_addresses.results }}"
+
+        - name: Generate environment data
+          set_fact:
+            environment_yml: |
+              ---
+              nodes:
+              {% for node in nodes %}
+
+                - name: "overcloud-{{ node.name }}"
+                  capabilities: "profile:{{ node.profile }}"
+                  pm_addr: hypervisor
+                  pm_password: redhat
+                  pm_port: "{{ node.vbmc_port }}"
+                  pm_type: pxe_ipmitool
+                  pm_user: admin
+                  mac:
+                    - "{{ mac_addresses[node.name] }}"
+              {% endfor %}
+
+        - name: Write environment file
+          copy:
+            content: |
+              {{
+                 environment_yml |
+                 from_yaml |
+                 to_nice_json(indent=2)
+              }}
+            dest: '{{ env_file }}'
+
+        - name: Validate environment file
+          slurp:
+            src: '{{ env_file }}'
+          register: check_env_file
+          failed_when: >
+            (
+              check_env_file['content'] |
+              b64decode |
+              from_json |
+              json_query('nodes') |
+              length
+            ) != (
+              nodes |
+              length
+            )
