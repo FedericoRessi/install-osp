@@ -45,7 +45,16 @@
 
   tasks:
 
-    - name: Validate environment file
+    - name: Validate environment file (1/2)
+      shell: |
+        source '{{ home }}/instackenv.json'
+        openstack baremetal instackenv validate
+      register: validate_env_file
+      ignore_errors: true
+      changed_when: false
+
+    - name: Validate environment file (2/2)
+      when: validate_env_file | succeeded
       slurp:
         src: '{{ env_file }}'
       register: check_env_file
@@ -62,7 +71,7 @@
           length
         )
 
-    - when: check_env_file | failed
+    - when: (validate_env_file | failed) or (check_env_file | failed)
       block:
 
         - name: Get MAC addresses
@@ -110,22 +119,14 @@
               {{
                  environment_yml |
                  from_yaml |
-                 to_nice_json(indent=2)
+                 tojson(indent=2)
               }}
             dest: '{{ env_file }}'
 
         - name: Validate environment file
-          slurp:
-            src: '{{ env_file }}'
-          register: check_env_file
-          failed_when: >
-            (
-              check_env_file['content'] |
-              b64decode |
-              from_json |
-              json_query('nodes') |
-              length
-            ) != (
-              nodes |
-              length
-            )
+          shell: |
+            source '{{ home }}/stackrc'
+            openstack baremetal instackenv validate
+          args:
+            chdir: '{{ home }}'
+          changed_when: false
