@@ -1,0 +1,6 @@
+default discovery
+
+LABEL discovery
+kernel agent.kernel
+append initrd=agent.ramdisk discoverd_callback_url=http://{{ undercloud_ip }}:5050/v1/continue RUNBENCH=1
+ipappend 3

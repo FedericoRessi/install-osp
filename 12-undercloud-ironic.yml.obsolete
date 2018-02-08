@@ -1,0 +1,76 @@
+- hosts: undercloud
+  become: true
+
+  vars:
+    home: /home/stack
+    undercloud_ip: 192.168.122.253
+    dhcp_start: 172.16.0.150
+    dhcp_stop: 172.16.0.180
+
+  tasks:
+
+    - name: Configure Ironic services
+      register: configure_ironic
+
+      ini_file:
+        path: /etc/ironic/ironic.conf
+        section: pxe
+        option: '{{ item.option }}'
+        value: '{{ item.value }}'
+
+      with_items:
+
+        - option: ipxe_enabled
+          value: 'False'
+
+        - option: pxe_bootfile_name
+          value: 'pxelinux.0'
+
+        - option: pxe_config_template
+          value: '$pybasedir/drivers/modules/pxe_config.template'
+
+    - name: Configure DHCP settings
+      register: configure_dhcp
+      template:
+        src: undercloud/etc/ironic-inspector/dnsmasq.conf.j2
+        dest: /etc/ironic-inspector/dnsmasq.conf
+
+    - name: Create /tftpboot directory
+      file:
+        name: '{{ item }}'
+        state: directory
+        owner: ironic
+        group: ironic
+      with_items:
+        - /tftpboot
+        - /tftpboot/pxelinux.cfg
+
+    - name: Copy image files
+      copy:
+        src: '/httpboot/{{ item }}'
+        dest: '/tftpboot/{{ item }}'
+      with_items:
+        - agent.kernel
+        - agent.ramdisk
+
+    - name: Configure DHCP settings
+      register: configure_dhcp
+      template:
+        src: undercloud/etc/ironic-inspector/dnsmasq.conf.j2
+        dest: /etc/ironic-inspector/dnsmasq.conf
+
+    - name: Edit /tftpboot/pxelinux.cfg/default file
+      register: configure_dhcp
+      template:
+        src: undercloud/tftpboot/pxelinux.cfg/default.j2
+        dest: /tftpboot/pxelinux.cfg/default
+
+    - name: Restart Ironic service
+      systemd:
+        name: '{{ item }}'
+        enabled: true
+        state: restarted
+      with_items:
+        - openstack-ironic-conductor
+        - openstack-ironic-api
+        - openstack-ironic-discoverd-dnsmasq

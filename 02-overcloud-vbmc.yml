@@ -98,7 +98,7 @@
           --network network:default \
           --network network:default \
           --name overcloud-{{ item.name }} \
-          --cpu SandyBridge,+vmx \
+          --cpu host \
           --dry-run --print-xml > /tmp/overcloud-{{ item.name }}.xml && \
         virsh define --file /tmp/overcloud-{{ item.name }}.xml
 

@@ -1,11 +1,12 @@
 ---
 
 - import_playbook: 00-hypervisor.yml
-
 - import_playbook: 01-undercloud-create.yml
-
-- import_playbook: 02-overcloud.yml
+- import_playbook: 02-overcloud-vbmc.yml
 
 - import_playbook: 10-undercloud-configure.yml
-
 - import_playbook: 11-undercloud-install.yml
+# - import_playbook: 12-undercloud-ironic.yml
+
+- import_playbook: 20-overcloud-images.yml
+- import_playbook: 21-overcloud-instack.yml
