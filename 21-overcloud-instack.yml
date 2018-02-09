@@ -54,12 +54,11 @@
       ignore_errors: true
 
     - name: Select overcloud baremetal nodes
-      when: registered_nodes_yaml | succeeded
+      when: registered_nodes_yaml|succeeded
       set_fact:
         registered_nodes: >
           {{
-            registered_nodes_yaml.stdout |
-            from_yaml |
+            registered_nodes_yaml.stdout|from_yaml|
             json_query("[?starts_with(@.Name, 'overcloud-')]")
           }}
 
@@ -159,13 +158,13 @@
       shell: |
         source '{{ home }}/stackrc'
         openstack baremetal introspection bulk status -f yaml
-      register: introspected_nodes_yaml
+      register: introspection_nodes_yaml
       changed_when: false
 
     - name: Parse inspected nodes status
       set_fact:
         instrospection_nodes: >
-          {{ introspected_nodes_yaml.stdout|from_yaml }}
+          {{ introspection_nodes_yaml.stdout|from_yaml }}
 
     - name: Abort unfinished introspections
       when: not item.Finished
@@ -176,9 +175,6 @@
         {{ instrospection_nodes|json_query('[?!Finished]') }}
       register: abort_introspection
 
-    - debug:
-        var: abort_introspection
-
     - when: abort_introspection|changed
       block:
 
@@ -186,13 +182,13 @@
         shell: |
           source '{{ home }}/stackrc'
           openstack baremetal introspection bulk status -f yaml
-        register: introspected_nodes_yaml
+        register: introspection_nodes_yaml
         changed_when: false
 
       - name: Parse inspected nodes status
         set_fact:
           instrospection_nodes: >
-            {{ introspected_nodes_yaml.stdout|from_yaml }}
+            {{ introspection_nodes_yaml.stdout|from_yaml }}
 
       - name: Check introspection abortion failed
         fail:
@@ -200,28 +196,30 @@
         with_items: >
           {{ instrospection_nodes|json_query('[?!Finished]') }}
 
-    - when: (instrospection_nodes|json_query('[?Error]')|length) > 0
+    - when: >
+        ((instrospection_nodes|json_query('[?Error]')|length) > 0) or
+        ((instrospection_nodes|length) != (nodes|length))
       block:
 
       - name: Introspect nodes
         shell: |
           source '{{ home }}/stackrc'
           openstack overcloud node introspect --provide \
-            {% for node in (instrospection_nodes|json_query('[?Error]')) %}
-            '{{ node["Node UUID"] }}' \
+            {% for node in registered_nodes %}
+            '{{ node.UUID }}' \
             {% endfor %}
 
       - name: Check introspection nodes status
         shell: |
           source '{{ home }}/stackrc'
           openstack baremetal introspection bulk status -f yaml
-        register: introspected_nodes_yaml
+        register: introspection_nodes_yaml
         changed_when: false
 
       - name: Parse inspected nodes status
         set_fact:
           instrospection_nodes: >
-            {{ introspected_nodes_yaml.stdout|from_yaml }}
+            {{ introspection_nodes_yaml.stdout|from_yaml }}
 
       - fail:
           msg: Errors inspecting node
