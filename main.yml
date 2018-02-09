@@ -10,3 +10,5 @@
 
 - import_playbook: 20-overcloud-images.yml
 - import_playbook: 21-overcloud-instack.yml
+
+- import_playbook: 30-overcloud-deploy.yml

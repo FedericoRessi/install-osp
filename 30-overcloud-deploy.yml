@@ -1,0 +1,51 @@
+---
+- hosts: undercloud
+  become: true
+  become_user: stack
+
+  vars:
+    home: /home/stack
+
+  tasks:
+
+    - name: Get subnet IDs
+      shell: |
+        source '{{ home }}/stackrc'
+        openstack subnet list -f yaml
+      register: subnet_list_yaml
+      changed_when: false
+
+    - name: Get provisioned subnet ID
+      set_fact:
+        subnet_id: >
+          {{
+            subnet_list_yaml.stdout|
+            from_yaml|
+            selectattr('Subnet', 'equalto', '172.16.0.0/24')|
+            map(attribute='ID')|
+            first
+          }}
+
+    - name: Get subnet details
+      shell: |
+        source '{{ home }}/stackrc'
+        openstack subnet show '{{ subnet_id }}' -f yaml
+      register: subnet_details_yaml
+      changed_when: false
+
+    - when: (subnet_details_yaml.stdout|from_yaml).dns_nameservers != '192.168.122.1'
+      block:
+
+        - name: Set subnet nameserver
+          shell: |
+            source '{{ home }}/stackrc'
+            openstack subnet set --dns-nameserver 192.168.122.1 2af1ef6e-d668-426a-aa12-b1a0abc58429
+          register: set_subnet_server
+
+        - name: Check subnet nameservers
+          shell: |
+            source '{{ home }}/stackrc'
+            openstack subnet show '{{ subnet_id }}' -f yaml
+          register: subnet_details_yaml
+          changed_when: false
+          failed_when: (subnet_details_yaml.stdout|from_yaml).dns_nameservers != '192.168.122.1'
