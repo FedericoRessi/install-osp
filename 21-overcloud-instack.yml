@@ -202,12 +202,19 @@
       block:
 
       - name: Introspect nodes
+        when: >
+          item.UUID not in (
+            instrospection_nodes|
+            json_query('[?!Error]')|
+            map(attribute='Node UUID')|
+            list
+          )
+
         shell: |
           source '{{ home }}/stackrc'
-          openstack overcloud node introspect --provide \
-            {% for node in registered_nodes %}
-            '{{ node.UUID }}' \
-            {% endfor %}
+          openstack overcloud node introspect --provide '{{ item.UUID }}'
+
+        with_items: '{{ registered_nodes }}'
 
       - name: Check introspection nodes status
         shell: |
@@ -225,6 +232,3 @@
           msg: Errors inspecting node
         with_items: >
           {{ instrospection_nodes|json_query('[?Error]') }}
-
-    - debug:
-        var: instrospection_nodes
