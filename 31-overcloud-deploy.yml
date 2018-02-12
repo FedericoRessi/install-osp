@@ -1,0 +1,15 @@
+---
+- hosts: undercloud
+  become: true
+  become_user: stack
+
+  vars:
+    home: /home/stack
+
+  tasks:
+
+    - name: Install TripleO heat templates
+      become_user: root
+      yum:
+        name: openstack-tripleo-heat-templates-compat
+        state: installed
