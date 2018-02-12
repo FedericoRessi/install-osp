@@ -5,50 +5,38 @@
 
   vars:
     home: /home/stack
+    subnet_name: ctlplane-subnet
+    dns_nameservers: 192.168.122.1
 
   tasks:
-
-    - name: Get subnet IDs
-      shell: |
-        source '{{ home }}/stackrc'
-        openstack subnet list -f yaml
-      register: subnet_list_yaml
-      changed_when: false
-
-    - name: Get provisioned subnet ID
-      set_fact:
-        subnet_id: >
-          {{
-            subnet_list_yaml.stdout|
-            from_yaml|
-            selectattr('Subnet', 'equalto', '172.16.0.0/24')|
-            map(attribute='ID')|
-            first
-          }}
 
     - name: Get subnet details
       shell: |
         source '{{ home }}/stackrc'
-        openstack subnet show '{{ subnet_id }}' -f yaml
-      register: subnet_details_yaml
+        openstack subnet show ctlplane-subnet -f yaml
+      register: subnet_yaml
       changed_when: false
 
-    - when: (subnet_details_yaml.stdout|from_yaml).dns_nameservers != '192.168.122.1'
+    - name: Parse subnet details
+      set_fact:
+        subnet: '{{ subnet_yaml.stdout|from_yaml }}'
+
+    - when: subnet.dns_nameservers != dns_nameservers
       block:
 
         - name: Set subnet nameserver
           shell: |
             source '{{ home }}/stackrc'
-            openstack subnet set --dns-nameserver 192.168.122.1 2af1ef6e-d668-426a-aa12-b1a0abc58429
+            openstack subnet set --no-dns-nameserver --dns-nameserver '{{ dns_nameservers }}' '{{ subnet.id }}'
           register: set_subnet_server
 
-        - name: Check subnet nameservers
+        - name: Check subnet nameservers has changed
           shell: |
             source '{{ home }}/stackrc'
-            openstack subnet show '{{ subnet_id }}' -f yaml
-          register: subnet_details_yaml
+            openstack subnet show '{{ subnet.id }}' -f yaml
+          register: subnet_yaml
           changed_when: false
-          failed_when: (subnet_details_yaml.stdout|from_yaml).dns_nameservers != '192.168.122.1'
+          failed_when: (subnet_yaml.stdout|from_yaml).dns_nameservers != dns_nameservers
 
     - name: Get image list
       shell: |
@@ -61,32 +49,19 @@
       set_fact:
         images: '{{ images_yaml.stdout|from_yaml }}'
 
-    - debug:
-        var: images
-
-    - name: Select deploy kernel image id
+    - name: Select image ids
       set_fact:
-        deploy_kernel_image: |
+        '{{ item.var }}': >
           {{
             images|
-            selectattr('Name', 'equalto', 'bm-deploy-kernel')|
+            selectattr('Name', 'equalto', item.name)|
             first
           }}
-
-    - debug:
-        var: deploy_kernel_image
-
-    - name: Select deploy kernel image id
-      set_fact:
-        deploy_ramdisk_image: |
-          {{
-            images|
-            selectattr('Name', 'equalto', 'bm-deploy-ramdisk')|
-            first
-          }}
-
-    - debug:
-        var: deploy_ramdisk_image
+      with_items:
+        - var: deploy_kernel_image
+          name: bm-deploy-kernel
+        - var: deploy_ramdisk_image
+          name: bm-deploy-ramdisk
 
     - name: Get registered baremetal nodes
       shell: |
@@ -99,88 +74,51 @@
       set_fact:
         registered_nodes: >
           {{
-            registered_nodes_yaml.stdout|from_yaml|
-            json_query("[?starts_with(@.Name, 'overcloud-')]")
+            registered_nodes_yaml.stdout|
+            from_yaml|
+            selectattr('Name', 'search', '^overcloud-')|
+            list
           }}
 
-    - name: Get baremetal nodes driver info
+    - name: Get baremetal nodes details
       shell: |
         source '{{ home }}/stackrc'
         openstack baremetal node show -c driver_info -c uuid -f yaml '{{ item.UUID }}'
+      register: nodes_yaml
+      changed_when: false
       with_items: '{{ registered_nodes }}'
-      register: driver_info_yaml
-      changed_when: false
 
-    - name: Parse baremetal nodes driver info (1)
+    - name: Parse baremetal nodes details
       set_fact:
-        driver_info_yaml2: |
-          {% for result in driver_info_yaml.results %}
-          - {{ result.stdout|from_yaml|to_json }}
-          {% endfor %}
+        nodes: >
+         {{
+            nodes_yaml.results|
+            map(attribute='stdout')|
+            map('from_yaml')|
+            list
+         }}
 
-    - name: Parse baremetal nodes driver info (2)
+    - name: Get non-bootable baremetal node IDs
       set_fact:
-        driver_info: '{{ driver_info_yaml2|from_yaml }}'
+        non_bootable_nodes_yaml: >
+          [
+            {% for node in nodes %}
+              {% if (node.driver_info.deploy_kernel != deploy_kernel_image.ID) or
+                    (node.driver_info.deploy_ramdisk != deploy_ramdisk_image.ID) %}
+              {{ node.uuid }},
+              {% endif %}
+            {% endfor %}
+          ]
 
-    - name: Get deploy kernel names
+    - name: Parse non-bootable baremetal node IDs
+      set_fact:
+        non_bootable_nodes: '{{ non_bootable_nodes_yaml|from_yaml }}'
+
+    - name: Configure overcloud node images
+      when: (non_bootable_nodes|length) > 0
       shell: |
         source '{{ home }}/stackrc'
-        openstack image show -f yaml -c id -c name '{{ item }}'
-      with_items: >
-        {{
-          driver_info|
-          map(attribute='driver_info')|
-          map(attribute='deploy_kernel')|
-          unique|
-          list
-        }}
-      changed_when: false
-      register: deploy_kernel_names_yaml
-
-    - name: Parse deploy kernel names (1)
-      set_fact:
-        deploy_kernel_names_yaml2: |
-          {% for result in deploy_kernel_names_yaml.results %}
-          - {{ result.stdout|from_yaml|to_json }}
-          {% endfor %}
-
-    - name: Parse deploy kernel names (2)
-      set_fact:
-        deploy_kernel_names: '{{ deploy_kernel_names_yaml2|from_yaml }}'
-
-    - debug:
-        var: deploy_kernel_names
-
-    - name: Get deploy ramdisk names
-      shell: |
-        source '{{ home }}/stackrc'
-        openstack image show -f yaml -c id -c name '{{ item }}'
-      with_items: >
-        {{
-          driver_info|
-          map(attribute='driver_info')|
-          map(attribute='deploy_ramdisk')|
-          unique|
-          list
-        }}
-      changed_when: false
-      register: deploy_ramdisk_names_yaml
-
-    - name: Parse deploy ramdisk names (1)
-      set_fact:
-        deploy_ramdisk_names_yaml2: |
-          {% for result in deploy_ramdisk_names_yaml.results %}
-          - {{ result.stdout|from_yaml|to_json }}
-          {% endfor %}
-
-    - name: Parse deploy ramdisk names  (2)
-      set_fact:
-        deploy_ramdisk_names: '{{ deploy_ramdisk_names_yaml2|from_yaml }}'
-
-    - debug:
-        var: deploy_ramdisk_names
-
-    - when: (deploy_kernel_names != ["bm-deploy-kernel"]) or
-            (deploy_ramdisk_names != ["bm-deploy-kernel"])
-      shell: |
-        source '{{ home }}/stackrc'
+        openstack overcloud node configure \
+        {% for uuid in non_bootable_nodes %}
+          '{{ uuid }}' \
+        {% endfor %}
