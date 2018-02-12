@@ -119,6 +119,8 @@
       shell: |
         source '{{ home }}/stackrc'
         openstack overcloud node configure \
+          --deploy-kernel bm-deploy-kernel \
+          --deploy-ramdisk bm-deploy-ramdisk \
         {% for uuid in non_bootable_nodes %}
           '{{ uuid }}' \
         {% endfor %}
