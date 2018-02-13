@@ -58,8 +58,10 @@
       set_fact:
         registered_nodes: >
           {{
-            registered_nodes_yaml.stdout|from_yaml|
-            json_query("[?starts_with(@.Name, 'overcloud-')]")
+            registered_nodes_yaml.stdout|
+            from_yaml|
+            selectattr('Name', 'search', '^overcloud-')|
+            list
           }}
 
     - when:
@@ -91,8 +93,8 @@
           set_fact:
             mac_addresses: >
               {{
-                mac_addresses |
-                default({}) |
+                mac_addresses|
+                default({})|
                 combine({item.item.name: item.stdout})
               }}
           with_items: "{{ get_mac_addresses.results }}"
@@ -119,16 +121,20 @@
           copy:
             content: |
               {{
-                 environment_yml |
-                 from_yaml |
-                 tojson(indent=2)
+                environment_yml|
+                from_yaml|
+                to_nice_json(indent=2)
               }}
-            dest: '{{ env_file }}'
+            dest: '{{ env_file }}.raw'
+
+        - name: Indent environment file
+          shell: >
+            python -m json.tool '{{ env_file }}.raw' > '{{ env_file }}'
 
         - name: Register baremetal nodes
           shell: |
             source '{{ home }}/stackrc'
-            openstack baremetal import --json '{{ home }}/instackenv.json'
+            openstack baremetal import --json '{{ env_file }}'
 
         - name: Check registered baremetal nodes
           shell: |
@@ -141,11 +147,12 @@
           set_fact:
             registered_nodes: >
               {{
-                registered_nodes_yaml.stdout |
-                from_yaml |
-                json_query("[?starts_with(@.Name, 'overcloud-')]")
+                registered_nodes_yaml.stdout|
+                from_yaml|
+                selectattr('Name', 'search', '^overcloud-')|
+                list
               }}
-          failed_when: (registered_nodes | length) != (nodes | length)
+          failed_when: (registered_nodes|length) != (nodes|length)
 
     - name: Place registered nodes into the manageable state
       when: item['Provisioning State'] != 'manageable'
