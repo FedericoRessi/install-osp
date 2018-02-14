@@ -10,13 +10,10 @@
       - 10.35.255.6
       - 10.35.28.1
 
-  tasks:
+    control_scale: 1
+    compute_scale: 2
 
-    - name: Install TripleO heat templates
-      become_user: root
-      yum:
-        name: openstack-tripleo-heat-templates-compat
-        state: installed
+  tasks:
 
     - name: Get node profiles
       shell: |
@@ -29,29 +26,66 @@
       set_fact: 
         profile_nodes: '{{ profile_nodes_yaml.stdout|from_yaml }}'
 
-    - name: Get node UIID by flavors
+    - name: Select nodes UIID by flavors
       set_fact:
         '{{ item.var }}': >
           {{
             profile_nodes|
-            selectattr('Current Profile', 'equalto', '{{ item.flavor }}')|
+            selectattr('Current Profile', 'equalto', item.flavor)|
+            selectattr('Provision State', 'equalto', 'active')|
             list
           }}
       with_items:
-        - var: control_nodes
+        - var: active_control_nodes
           flavor: control
-        - var: compute_nodes
+        - var: active_compute_nodes
           flavor: compute
 
-    - name: Deploy overcloud
-      shell: |
-        source '{{ home }}/stackrc'
-        openstack overcloud deploy \
-          --templates /usr/share/openstack-tripleo-heat-templates/newton/ \
-          {% for ntp_server in ntp_servers %}
-            --ntp-server '{{ ntp_server }}' \
-          {% endfor %}
-          --control-scale 1 \
-          --control-flavor control \
-          --compute-scale 1 \
-          --compute-flavor compute
+    - when: ((active_control_nodes|length) != control_scale) or
+            ((active_compute_nodes|length) != compute_scale)
+      block:
+
+        - name: Install TripleO heat templates
+          become_user: root
+          yum:
+            name: openstack-tripleo-heat-templates-compat
+            state: installed
+
+        - name: Deploy overcloud
+          shell: |
+            source '{{ home }}/stackrc'
+            openstack overcloud deploy \
+              --templates /usr/share/openstack-tripleo-heat-templates/newton/ \
+              {% for ntp_server in ntp_servers %}
+                --ntp-server '{{ ntp_server }}' \
+              {% endfor %}
+              --control-scale '{{ control_scale }}' \
+              --control-flavor control \
+              --compute-scale '{{ compute_scale }}' \
+              --compute-flavor compute
+
+        - name: Get node profiles
+          shell: |
+            source '{{ home }}/stackrc'
+            openstack overcloud profiles list -f yaml
+          changed_when: false
+          register: profile_nodes_yaml
+
+        - name: Get node UIID by flavors
+          set_fact: 
+            profile_nodes: '{{ profile_nodes_yaml.stdout|from_yaml }}'
+
+        - name: Select nodes UIID by flavors
+          set_fact:
+            '{{ item.var }}': >
+              {{
+                profile_nodes|
+                selectattr('Current Profile', 'equalto', item.flavor)|
+                selectattr('Provision State', 'equalto', 'active')|
+                list
+              }}
+          with_items:
+            - var: active_control_nodes
+              flavor: control
+            - var: active_compute_nodes
+              flavor: compute
