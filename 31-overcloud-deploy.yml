@@ -13,6 +13,8 @@
     control_scale: 1
     compute_scale: 2
 
+    ssh_identity_file: "{{ lookup('env', 'SSH_IDENTITY_FILE') }}"
+
   tasks:
 
     - name: Get node profiles
@@ -117,5 +119,25 @@
             first|
             replace('ctlplane=', '', count=1)
           }} {{ item.Name }}
+      with_items: >
+        {{ overcloud_nodes_network_detais }}
+
+    - name: Copy identity files
+      copy:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+      with_items:
+        - src: '{{ ssh_identity_file }}'
+          dest: /tmp/pub_key
+        - src: '{{ ssh_identity_file }}.pub'
+          dest: /tmp/pub_key.pub
+
+    - name: Copy authentication keys to overcloud nodes
+      shell: |
+        ssh-copy-id \
+          -i /tmp/pub_key \
+          -o PasswordAuthentication=no \
+          -o StrictHostKeyChecking=no \
+          'heat-admin@{{item.Name}}'
       with_items: >
         {{ overcloud_nodes_network_detais }}

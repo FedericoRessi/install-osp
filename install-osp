@@ -87,7 +87,7 @@ echo "${PROXY_JUMP}" > "${PROXY_JUMP_FILE}"
 
 # Generate SSH config file
 HYPERVISOR_PORT=${HYPERVISOR_PORT:-22}
-SSH_CONFIG_FILE=${SSH_CONFIG_FILE:-${INSTALL_OSP_SSH_DIR}/config}
+export SSH_CONFIG_FILE=${SSH_CONFIG_FILE:-${INSTALL_OSP_SSH_DIR}/config}
 echo "
 Host hypervisor
     HostName ${HYPERVISOR}
@@ -101,11 +101,20 @@ Host hypervisor
 Host undercloud
     HostName undercloud
     User root
-    Port ${HYPERVISOR_PORT}
+    Port 22
     UserKnownHostsFile /dev/null
     StrictHostKeyChecking no
     IdentityFile ${SSH_IDENTITY_FILE}
     ProxyJump hypervisor
+
+Host overcloud
+    HostName overcloud-controller-0
+    User heat-admin
+    Port 22
+    UserKnownHostsFile /dev/null
+    StrictHostKeyChecking no
+    IdentityFile ${SSH_IDENTITY_FILE}
+    ProxyJump undercloud
 
 " > "${SSH_CONFIG_FILE}"
 
