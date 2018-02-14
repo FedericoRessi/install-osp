@@ -64,28 +64,58 @@
               --compute-scale '{{ compute_scale }}' \
               --compute-flavor compute
 
-        - name: Get node profiles
-          shell: |
-            source '{{ home }}/stackrc'
-            openstack overcloud profiles list -f yaml
-          changed_when: false
-          register: profile_nodes_yaml
+    - name: Get overcloud nodes network detais
+      shell: |
+        source '{{ home }}/stackrc'
+        openstack server list -f yaml
+      changed_when: false
+      register: overcloud_nodes_network_detais_yaml
 
-        - name: Get node UIID by flavors
-          set_fact: 
-            profile_nodes: '{{ profile_nodes_yaml.stdout|from_yaml }}'
+    - name: Parse overcloud nodes network detais
+      set_fact:
+        overcloud_nodes_network_detais: >
+          {{ overcloud_nodes_network_detais_yaml.stdout|from_yaml }}
 
-        - name: Select nodes UIID by flavors
-          set_fact:
-            '{{ item.var }}': >
-              {{
-                profile_nodes|
-                selectattr('Current Profile', 'equalto', item.flavor)|
-                selectattr('Provision State', 'equalto', 'active')|
-                list
-              }}
-          with_items:
-            - var: active_control_nodes
-              flavor: control
-            - var: active_compute_nodes
-              flavor: compute
+    - name: Select active overcloud nodes by flavour
+      set_fact:
+        '{{ item.var }}': >
+          {{
+            overcloud_nodes_network_detais|
+            selectattr('Status', 'equalto', 'ACTIVE')|
+            selectattr('Name', 'search', item.match_name)|
+            list
+          }}
+      with_items:
+        - var: control_nodes_network_detais
+          match_name: '^overcloud-controller-'
+        - var: compute_nodes_network_detais
+          match_name: '^overcloud-compute-'
+
+    - name: Check active overcloud nodes counts
+      failed_when: >
+        (item.nodes|length) != item.scale
+      debug:
+        msg: >
+          Actual active nodes: {{ item.nodes|length }}.
+          Expected {{ item.scale }}.
+      with_items:
+        - nodes: '{{ control_nodes_network_detais }}'
+          scale: '{{ control_scale }}'
+        - nodes: '{{ compute_nodes_network_detais }}'
+          scale: '{{ compute_scale }}'
+
+    - name: "Populate hosts file"
+      become_user: root
+      lineinfile:
+        path: /etc/hosts
+        regexp: '.* {{ item.Name }}$'
+        state: present
+        line: >
+          {{
+            item.Networks.split(', ')|
+            select('search', '^ctlplane=')|
+            first|
+            replace('ctlplane=', '', count=1)
+          }} {{ item.Name }}
+      with_items: >
+        {{ overcloud_nodes_network_detais }}
