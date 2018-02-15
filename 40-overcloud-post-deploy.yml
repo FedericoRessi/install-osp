@@ -1,10 +1,10 @@
 ---
-- hosts: undercloud
+- hosts: overcloud
   become: true
-  become_user: stack
+  become_user: heat-admin
 
   vars:
-    home: /home/stack
+    home: /home/heat-admin
 
   tasks:
 
@@ -13,13 +13,14 @@
         source ~/overcloudrc
         openstack compute service list -f yaml
       register: openstack_compute_services_yaml
+      changed_when: false
 
     - name: Parse overcloud compute services
-      set_fact: 
+      set_fact:
         openstack_compute_services: >
           {{ openstack_compute_services_yaml.stdout|from_yaml }}
 
-    - name: Check 
+    - name: Check
       fail:
         msg: Compute service not found.
       when: >
@@ -34,3 +35,112 @@
         - 'nova-scheduler'
         - 'nova-conductor'
         - 'nova-compute'
+
+    - name: Get overcloud networks
+      shell: |
+        source ~/overcloudrc
+        openstack network list -f yaml
+      register: overcloud_networks_yaml
+      changed_when: false
+
+    - name: Parse overcloud networks
+      set_fact:
+        overcloud_networks: >
+          {{ overcloud_networks_yaml.stdout|from_yaml }}
+
+    - name: Create overcloud management network
+      when: >
+        (
+          overcloud_networks|
+          selectattr('Name', 'equalto', 'management')|
+          list|
+          length
+        ) == 0
+      block:
+
+        - name: Create management network
+          shell: |
+            source ~/overcloudrc
+            openstack network create management --external
+
+        - name: Get overcloud networks
+          shell: |
+            source ~/overcloudrc
+            openstack network list -f yaml
+          register: overcloud_networks_yaml
+          changed_when: false
+
+        - name: Parse overcloud networks
+          set_fact:
+            overcloud_networks: >
+              {{ overcloud_networks_yaml.stdout|from_yaml }}
+
+    - name: Select management network
+      set_fact:
+        management_network: >
+          {{
+            overcloud_networks|
+            selectattr('Name', 'equalto', 'management')|
+            first
+          }}
+
+    - debug:
+        var: management_network
+        verbosity: 2
+
+    - name: Get overcloud subnets
+      shell: |
+        source ~/overcloudrc
+        openstack subnet list -f yaml
+      register: overcloud_subnets_yaml
+      changed_when: false
+
+    - name: Parse management subnets
+      set_fact:
+        overcloud_subnets: >
+          {{ overcloud_subnets_yaml.stdout|from_yaml }}
+
+    - when: >
+        (
+          overcloud_subnets|
+          selectattr('Name', 'equalto', 'management_subnet')|
+          selectattr('Network', 'equalto', management_network.ID)|
+          list|
+          length
+        ) == 0
+      block:
+
+        - name: Create management subnet
+          shell: |
+            source ~/overcloudrc
+            openstack subnet create \
+              --network management --no-dhcp \
+              --dns-nameserver 192.168.122.1 \
+              --allocation-pool start=172.16.0.210,end=172.16.0.230 \
+              --subnet-range 172.16.0.0/24 \
+              management_subnet
+
+        - name: Get overcloud subnets
+          shell: |
+            source ~/overcloudrc
+            openstack subnet list -f yaml
+          register: overcloud_subnets_yaml
+          changed_when: false
+
+        - name: Parse management subnets
+          set_fact:
+            overcloud_subnets: >
+              {{ overcloud_subnets_yaml.stdout|from_yaml }}
+
+    - name: Parse overcloud networks
+      set_fact:
+        management_subnet: >
+          {{
+            overcloud_subnets|
+            selectattr('Name', 'equalto', 'management_subnet')|
+            selectattr('Network', 'equalto', management_network.ID)|
+            first
+          }}
+
+    - debug:
+        var: management_subnet
