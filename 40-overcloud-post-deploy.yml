@@ -1,0 +1,36 @@
+---
+- hosts: undercloud
+  become: true
+  become_user: stack
+
+  vars:
+    home: /home/stack
+
+  tasks:
+
+    - name: Get overcloud compute services
+      shell: |
+        source ~/overcloudrc
+        openstack compute service list -f yaml
+      register: openstack_compute_services_yaml
+
+    - name: Parse overcloud compute services
+      set_fact: 
+        openstack_compute_services: >
+          {{ openstack_compute_services_yaml.stdout|from_yaml }}
+
+    - name: Check 
+      fail:
+        msg: Compute service not found.
+      when: >
+        (
+          openstack_compute_services|
+          selectattr('Binary', 'equalto', item)|
+          list|
+          length
+        ) == 0
+      with_items:
+        - 'nova-consoleauth'
+        - 'nova-scheduler'
+        - 'nova-conductor'
+        - 'nova-compute'

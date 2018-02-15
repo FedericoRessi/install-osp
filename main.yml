@@ -6,10 +6,11 @@
 
 - import_playbook: 10-undercloud-configure.yml
 - import_playbook: 11-undercloud-install.yml
-# - import_playbook: 12-undercloud-ironic.yml
 
 - import_playbook: 20-overcloud-images.yml
 - import_playbook: 21-overcloud-instack.yml
 
 - import_playbook: 30-overcloud-pre-deploy.yml
 - import_playbook: 31-overcloud-deploy.yml
+
+- import_playbook: 40-overcloud-post-deploy.yml

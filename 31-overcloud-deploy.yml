@@ -94,9 +94,9 @@
           match_name: '^overcloud-compute-'
 
     - name: Check active overcloud nodes counts
-      failed_when: >
+      when: >
         (item.nodes|length) != item.scale
-      debug:
+      fail:
         msg: >
           Actual active nodes: {{ item.nodes|length }}.
           Expected {{ item.scale }}.
@@ -138,6 +138,15 @@
           -i /tmp/pub_key \
           -o PasswordAuthentication=no \
           -o StrictHostKeyChecking=no \
-          'heat-admin@{{item.Name}}'
+          'heat-admin@{{ item.Name }}'
       with_items: >
         {{ overcloud_nodes_network_detais }}
+
+    - name: Copy overcloudrc file to overcloud control nodes
+      shell:
+        scp \
+          -oStrictHostKeyChecking=no \
+          ~/overcloudrc \
+          "heat-admin@{{ item.Name }}:/home/heat-admin"
+      with_items: >
+        {{ control_nodes_network_detais }}
