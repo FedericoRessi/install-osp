@@ -114,7 +114,7 @@
           shell: |
             source ~/overcloudrc
             openstack subnet create \
-              --network management --no-dhcp \
+              --network '{{ management_network.ID }}' --no-dhcp \
               --dns-nameserver 192.168.122.1 \
               --allocation-pool start=172.16.0.210,end=172.16.0.230 \
               --subnet-range 172.16.0.0/24 \
@@ -146,7 +146,7 @@
         var: management_subnet
         verbosity: 2
 
-    - name: Create overcloud management network
+    - name: Create overcloud internal network
       when: >
         (
           overcloud_networks|
@@ -200,7 +200,7 @@
           shell: |
             source ~/overcloudrc
             openstack subnet create \
-              --network internal \
+              --network '{{ internal_network.ID }}' \
               --subnet-range 192.168.0.0/24 \
               internal_subnet
 
@@ -228,4 +228,108 @@
 
     - debug:
         var: internal_subnet
+        verbosity: 2
+
+    - name: Get overcloud routers
+      shell: |
+        source ~/overcloudrc
+        openstack router list --long -f yaml
+      register: overcloud_routers_yaml
+      changed_when: false
+
+    - name: Parse overcloud routers
+      set_fact:
+        overcloud_routers: >
+          {{ overcloud_routers_yaml.stdout|from_yaml }}
+
+    - when: >
+        (
+          overcloud_routers|
+          selectattr('Name', 'equalto', 'internal_router')|
+          list|
+          length
+        ) == 0
+      block:
+
+        - name: Create internal router
+          shell: |
+            source ~/overcloudrc
+            openstack router create internal_router
+
+        - name: Get overcloud routers
+          shell: |
+            source ~/overcloudrc
+            openstack router list --long -f yaml
+          register: overcloud_routers_yaml
+          changed_when: false
+
+        - name: Parse overcloud routers
+          set_fact:
+            overcloud_routers: >
+              {{ overcloud_routers_yaml.stdout|from_yaml }}
+
+    - name: Select internal router
+      set_fact:
+        internal_router: >
+          {{
+            overcloud_routers|
+            selectattr('Name', 'equalto', 'internal_router')|
+            first
+          }}
+
+    - debug:
+        var: internal_router
+        # verbosity: 2
+
+    - name: Parse internal router external gateway info
+      set_fact:
+        internal_router_gateway: >
+          {{
+            internal_router['External gateway info']|
+            from_yaml
+          }}
+
+    - when: >
+        (internal_router_gateway is not mapping) or
+        (internal_router_gateway.network_id != management_network.ID)
+      block:
+
+        - name: Setup external gateway for internal router
+          shell: |
+            source ~/overcloudrc
+            neutron router-gateway-set internal_router management
+
+        - name: Get overcloud routers
+          shell: |
+            source ~/overcloudrc
+            openstack router list --long -f yaml
+          register: overcloud_routers_yaml
+          changed_when: false
+
+        - name: Parse overcloud routers
+          set_fact:
+            overcloud_routers: >
+              {{ overcloud_routers_yaml.stdout|from_yaml }}
+
+        - name: Select internal router
+          set_fact:
+            internal_router: >
+              {{
+                overcloud_routers|
+                selectattr('Name', 'equalto', 'internal_router')|
+                first
+              }}
+
+        - name: Parse internal router external gateway info
+          set_fact:
+            internal_router_gateway: >
+              {{
+                internal_router['External gateway info']|
+                from_yaml
+              }}
+          failed_when: >
+            internal_router_gateway.network_id != management_network.ID
+
+    - debug:
+        var: internal_router_gateway
         # verbosity: 2
