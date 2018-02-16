@@ -279,7 +279,7 @@
 
     - debug:
         var: internal_router
-        # verbosity: 2
+        verbosity: 2
 
     - name: Parse internal router external gateway info
       set_fact:
@@ -330,6 +330,63 @@
           failed_when: >
             internal_router_gateway.network_id != management_network.ID
 
+    - name: Get router fixed ips
+      shell: |
+        source ~/overcloudrc
+        neutron router-port-list '{{ internal_router.ID }}' -f yaml -c fixed_ips
+      register: router_fixed_ips_yaml
+      changed_when: false
+
+    - name: Parse router fixed ips
+      set_fact:
+        router_fixed_ips: >
+          {{
+            router_fixed_ips_yaml.stdout|
+            from_yaml|
+            map(attribute='fixed_ips')|
+            map('from_yaml')|
+            list
+          }}
+
+    - when: >
+        (
+          router_fixed_ips|
+          selectattr('subnet_id', 'equalto', internal_subnet.ID)|
+          list|
+          length
+        ) == 0
+      block:
+
+        - name: Add internal subnet to internal router
+          shell: |
+            source ~/overcloudrc
+            neutron router-interface-add '{{ internal_router.ID }}' '{{ internal_subnet.ID }}'
+
+        - name: Get router fixed ips
+          shell: |
+            source ~/overcloudrc
+            neutron router-port-list '{{ internal_router.ID }}' -f yaml -c fixed_ips
+          register: router_fixed_ips_yaml
+          changed_when: false
+
+        - name: Parse router fixed ips
+          set_fact:
+            router_fixed_ips: >
+              {{
+                router_fixed_ips_yaml.stdout|
+                from_yaml|
+                map(attribute='fixed_ips')|
+                map('from_yaml')|
+                list
+              }}
+          failed_when: >
+            (
+              router_fixed_ips|
+              selectattr('subnet_id', 'equalto', internal_subnet.ID)|
+              list|
+              length
+            ) == 0
+
     - debug:
-        var: internal_router_gateway
-        # verbosity: 2
+        var: router_fixed_ips
+        verbosity: 2
