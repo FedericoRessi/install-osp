@@ -67,3 +67,56 @@
     - debug:
         var: cirros_image
         verbosity: 2
+
+
+    - name: Get overcloud flavors
+      shell: |
+        source ~/overcloudrc
+        openstack flavor list -f yaml
+      register: overcloud_flavors_yaml
+      changed_when: false
+
+    - name: Parse overcloud falvors
+      set_fact:
+        overcloud_falvors: >
+          {{ overcloud_flavors_yaml.stdout|from_yaml }}
+
+    - when: >
+        (
+          overcloud_falvors|
+          selectattr('Name', 'equalto', 'm1.tiny')|
+          list|
+          length
+        ) == 0
+      block:
+
+        - name: Create flavor
+          shell: |
+            source ~/overcloudrc
+            openstack flavor create --ram 512 --disk 2 --vcpus 1 --id auto m1.tiny
+
+        - name: Get overcloud flavors
+          shell: |
+            source ~/overcloudrc
+            openstack flavor list -f yaml
+          register: overcloud_flavors_yaml
+          changed_when: false
+
+        - name: Parse overcloud falvors
+          set_fact:
+            overcloud_falvors: >
+              {{ overcloud_flavors_yaml.stdout|from_yaml }}
+
+    - name: Select flavor
+      set_fact:
+        flavour: >
+          {{
+            overcloud_falvors|
+            selectattr('Name', 'equalto', 'm1.tiny')|
+            first
+          }}
+
+    - debug:
+        var: flavour
+        verbosity: 2
+
