@@ -8,40 +8,27 @@
 
   tasks:
 
-    - name: List overcloud images
+    - name: List overcloud instances
       shell: |
         source ~/overcloudrc
-        openstack image list -f yaml
-      register: overcloud_images_yaml
+        openstack server list -f yaml
+      register: overcloud_instances_yaml
       changed_when: false
 
-    - name: Parse overcloud images
+    - name: Parse overcloud instances
       set_fact:
-        overcloud_images: >
-          {{ overcloud_images_yaml.stdout|from_yaml }}
+        overcloud_instances: >
+          {{ overcloud_instances_yaml.stdout|from_yaml }}
 
     - when: >
         (
-          overcloud_images|
-          selectattr('Name', 'equalto', 'cirros')|
+          overcloud_instances|
+          selectattr('Name', 'equalto', 'overcloud-test')|
+          selectattr('Status', 'equalto', 'ACTIVE')|
           list|
           length
         ) == 0
       block:
-
-        - name: Download Cirros image
-          get_url:
-            url: http://download.cirros-cloud.net/0.3.5/cirros-0.3.5-x86_64-disk.img
-            dest: /tmp
-
-        - name: Upload the image to overcloud
-          shell: |
-            source ~/overcloudrc
-            openstack image create cirros \
-              --file /tmp/cirros-0.3.5-x86_64-disk.img \
-              --disk-format qcow2 \
-              --container-format bare \
-              --public
 
         - name: List overcloud images
           shell: |
@@ -53,47 +40,55 @@
         - name: Parse overcloud images
           set_fact:
             overcloud_images: >
-              {{ overcloud_images_yaml.stdout|from_yaml}}
+              {{ overcloud_images_yaml.stdout|from_yaml }}
 
-    - name: Select cirros image
-      set_fact:
-        cirros_image: >
-          {{
-            overcloud_images|
-            selectattr('Name', 'equalto', 'cirros')|
-            first
-          }}
+        - when: >
+            (
+              overcloud_images|
+              selectattr('Name', 'equalto', 'cirros')|
+              list|
+              length
+            ) == 0
+          block:
 
-    - debug:
-        var: cirros_image
-        verbosity: 2
+            - name: Download Cirros image
+              get_url:
+                url: http://download.cirros-cloud.net/0.3.5/cirros-0.3.5-x86_64-disk.img
+                dest: /tmp
 
+            - name: Upload the image to overcloud
+              shell: |
+                source ~/overcloudrc
+                openstack image create cirros \
+                  --file /tmp/cirros-0.3.5-x86_64-disk.img \
+                  --disk-format qcow2 \
+                  --container-format bare \
+                  --public
 
-    - name: Get overcloud flavors
-      shell: |
-        source ~/overcloudrc
-        openstack flavor list -f yaml
-      register: overcloud_flavors_yaml
-      changed_when: false
+            - name: List overcloud images
+              shell: |
+                source ~/overcloudrc
+                openstack image list -f yaml
+              register: overcloud_images_yaml
+              changed_when: false
 
-    - name: Parse overcloud falvors
-      set_fact:
-        overcloud_falvors: >
-          {{ overcloud_flavors_yaml.stdout|from_yaml }}
+            - name: Parse overcloud images
+              set_fact:
+                overcloud_images: >
+                  {{ overcloud_images_yaml.stdout|from_yaml}}
 
-    - when: >
-        (
-          overcloud_falvors|
-          selectattr('Name', 'equalto', 'm1.tiny')|
-          list|
-          length
-        ) == 0
-      block:
+        - name: Select cirros image
+          set_fact:
+            cirros_image: >
+              {{
+                overcloud_images|
+                selectattr('Name', 'equalto', 'cirros')|
+                first
+              }}
 
-        - name: Create flavor
-          shell: |
-            source ~/overcloudrc
-            openstack flavor create --ram 512 --disk 2 --vcpus 1 --id auto m1.tiny
+        - debug:
+            var: cirros_image
+            verbosity: 2
 
         - name: Get overcloud flavors
           shell: |
@@ -107,16 +102,128 @@
             overcloud_falvors: >
               {{ overcloud_flavors_yaml.stdout|from_yaml }}
 
-    - name: Select flavor
+        - when: >
+            (
+              overcloud_falvors|
+              selectattr('Name', 'equalto', 'm1.tiny')|
+              list|
+              length
+            ) == 0
+          block:
+
+            - name: Create flavor
+              shell: |
+                source ~/overcloudrc
+                openstack flavor create --ram 512 --disk 2 --vcpus 1 --id auto m1.tiny
+
+            - name: Get overcloud flavors
+              shell: |
+                source ~/overcloudrc
+                openstack flavor list -f yaml
+              register: overcloud_flavors_yaml
+              changed_when: false
+
+            - name: Parse overcloud falvors
+              set_fact:
+                overcloud_falvors: >
+                  {{ overcloud_flavors_yaml.stdout|from_yaml }}
+
+        - name: Select tiny flavor
+          set_fact:
+            tiny_flavor: >
+              {{
+                overcloud_falvors|
+                selectattr('Name', 'equalto', 'm1.tiny')|
+                first
+              }}
+
+        - debug:
+            var: tiny_flavor
+            verbosity: 2
+
+        - name: Get overcloud networks
+          shell: |
+            source ~/overcloudrc
+            openstack network list -f yaml
+
+          register: overcloud_networks_yaml
+          changed_when: false
+
+        - name: Parse overcloud falvors
+          set_fact:
+            overcloud_networks: >
+              {{ overcloud_networks_yaml.stdout|from_yaml }}
+
+        - name: Select internal network
+          set_fact:
+            internal_network: >
+              {{
+                overcloud_networks|
+                selectattr('Name', 'equalto', 'internal')|
+                first
+              }}
+
+        - debug:
+            var: internal_network
+            verbosity: 2
+
+        - name: Delete existing test instances
+          shell: |
+            source ~/overcloudrc
+            openstack server delete '{{ item.ID }}'
+
+          with_items: >
+            {{
+              overcloud_instances|
+              selectattr('Name', 'equalto', 'overcloud-test')|
+              list
+            }}
+
+        - name: Create overcloud test instance
+          shell: |
+            source ~/overcloudrc
+            openstack server create \
+              --flavor '{{ tiny_flavor.ID }}' \
+              --nic 'net-id={{ internal_network.ID }}' \
+              --image '{{ cirros_image.ID }}' \
+              overcloud-test
+
+        - name: Wait for test instance to get active
+          shell: |
+            source ~/overcloudrc
+            openstack server list -f yaml
+          register: overcloud_instances_yaml
+          until: >
+            (
+              overcloud_instances_yaml.stdout|
+              from_yaml|
+              selectattr('Name', 'equalto', 'overcloud-test')|
+              selectattr('Status', 'equalto', 'ACTIVE')|
+              list|
+              length
+            ) == 1
+          retries: 20
+          delay: 5
+          changed_when: false
+
+        - name: Parse overcloud instances
+          set_fact:
+            overcloud_instances: >
+              {{ overcloud_instances_yaml.stdout|from_yaml }}
+
+    - debug:
+        var: overcloud_instances
+        verbosity: 2
+
+    - name: Select overcloud test instance
       set_fact:
-        flavour: >
+        test_instance: >
           {{
-            overcloud_falvors|
-            selectattr('Name', 'equalto', 'm1.tiny')|
+            overcloud_instances|
+            selectattr('Name', 'equalto', 'overcloud-test')|
             first
           }}
 
     - debug:
-        var: flavour
+        var: test_instance
         verbosity: 2
-
