@@ -316,6 +316,7 @@
           register: overcloud_floating_ip_details_yaml
           with_items: >
             {{ overcloud_floating_ips }}
+          changed_when: false
 
         - name: Parse floating ip detais
           set_fact:
