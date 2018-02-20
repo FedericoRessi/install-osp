@@ -5,6 +5,13 @@
 
   vars:
     home: /home/heat-admin
+    security_group_rules:
+      - protocol: tcp
+        port_range: "22:22"
+        dst_port: 22
+      - protocol: icmp
+        port_range: ""
+        dst_port: -1
 
   tasks:
 
@@ -476,25 +483,29 @@
         var: default_security_group_rules
         verbosity: 2
 
-    - when: >
+    - name: Create default security group rules
+      when: >
         (
           default_security_group_rules|
-          selectattr('IP Protocol', 'equalto', 'tcp')|
           selectattr('IP Range', 'equalto', '0.0.0.0/0')|
-          selectattr('Port Range', 'equalto', '22:22')|
+          selectattr('IP Protocol', 'equalto', item.protocol)|
+          selectattr('Port Range', 'equalto', item.port_range)|
           list|
           length
         ) == 0
-      block:
+      shell: |
+        source ~/overcloudrc
+        openstack security group rule create \
+          '{{ default_security_group.ID }}' \
+          --proto '{{ item.protocol }}' \
+          --dst-port '{{ item.dst_port }}' \
+          --src-ip 0.0.0.0/0
+      register: create_default_security_group_rules
+      with_items: >
+        {{ security_group_rules }}
 
-        - name: Create overcloud security group rule for SSH connection
-          shell: |
-            source ~/overcloudrc
-            openstack security group rule create \
-              '{{ default_security_group.ID }}' \
-              --proto tcp \
-              --dst-port 22 \
-              --src-ip 0.0.0.0/0
+    - when: create_default_security_group_rules|changed
+      block:
 
         - name: Get overcloud security group rules
           shell: |
@@ -517,17 +528,23 @@
                 list
               }}
 
-    - name: Select SSH connection rule
+    - name: Select administration security group rules
       set_fact:
-        ssh_connection_rule: >
+        admin_security_group_rules: >
           {{
-            default_security_group_rules|
-            selectattr('IP Protocol', 'equalto', 'tcp')|
-            selectattr('IP Range', 'equalto', '0.0.0.0/0')|
-            selectattr('Port Range', 'equalto', '22:22')|
-            first
+            admin_security_group_rules|
+            default([])|
+            union(
+              default_security_group_rules|
+              selectattr('IP Range', 'equalto', '0.0.0.0/0')|
+              selectattr('IP Protocol', 'equalto', item.protocol)|
+              selectattr('Port Range', 'equalto', item.port_range)|
+              list
+            )
           }}
+      with_items: >
+        {{ security_group_rules }}
 
     - debug:
-        var: ssh_connection_rule
+        var: admin_security_group_rules
         verbosity: 2
