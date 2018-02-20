@@ -390,8 +390,144 @@
     - name: Select test instance management IP
       set_fact:
         test_instance_management_ip: >
-          {{test_instance_ips|ipaddr(management_subnet.Subnet)|first}}
+          {{
+            test_instance_ips|
+            ipaddr(management_subnet.Subnet)|
+            first
+          }}
 
     - debug:
         var: test_instance_management_ip
-        # verbosity: 2
+        verbosity: 2
+
+    - name: Get overcloud projects
+      shell: |
+        source ~/overcloudrc
+        openstack project list -f yaml
+      register: overcloud_projects_yaml
+      changed_when: false
+
+    - name: Parse overcloud projects
+      set_fact:
+        overcloud_projects: >
+          {{ overcloud_projects_yaml.stdout|from_yaml }}
+
+    - name: Select admin project
+      set_fact:
+        admin_project: >
+          {{
+            overcloud_projects|
+            selectattr('Name', 'equalto', 'admin')|
+            first
+          }}
+
+    - debug:
+        var: admin_project
+        verbosity: 2
+
+    - name: Get overcloud security groups
+      shell: |
+        source ~/overcloudrc
+        openstack security group list -f yaml
+      register: overcloud_security_groups_yaml
+      changed_when: false
+
+    - name: Parse overcloud projects
+      set_fact:
+        overcloud_security_groups: >
+          {{ overcloud_security_groups_yaml.stdout|from_yaml }}
+
+    - name: Select default security group
+      set_fact:
+        default_security_group: >
+          {{
+            overcloud_security_groups|
+            selectattr('Name', 'equalto', 'default')|
+            selectattr('Project', 'equalto', admin_project.ID)|
+            first
+          }}
+
+    - debug:
+        var: default_security_group
+        verbosity: 2
+
+    - name: Get overcloud security group rules
+      shell: |
+        source ~/overcloudrc
+        openstack security group rule list -f yaml
+      register: overcloud_security_group_rules_yaml
+      changed_when: false
+
+    - name: Parse overcloud security group rules
+      set_fact:
+        overcloud_security_group_rules: >
+          {{ overcloud_security_group_rules_yaml.stdout|from_yaml }}
+
+    - name: Select default security group rules
+      set_fact:
+        default_security_group_rules: >
+          {{
+            overcloud_security_group_rules|
+            selectattr('Security Group', 'equalto', default_security_group.ID)|
+            list
+          }}
+
+    - debug:
+        var: default_security_group_rules
+        verbosity: 2
+
+    - when: >
+        (
+          default_security_group_rules|
+          selectattr('IP Protocol', 'equalto', 'tcp')|
+          selectattr('IP Range', 'equalto', '0.0.0.0/0')|
+          selectattr('Port Range', 'equalto', '22:22')|
+          list|
+          length
+        ) == 0
+      block:
+
+        - name: Create overcloud security group rule for SSH connection
+          shell: |
+            source ~/overcloudrc
+            openstack security group rule create \
+              '{{ default_security_group.ID }}' \
+              --proto tcp \
+              --dst-port 22 \
+              --src-ip 0.0.0.0/0
+
+        - name: Get overcloud security group rules
+          shell: |
+            source ~/overcloudrc
+            openstack security group rule list -f yaml
+          register: overcloud_security_group_rules_yaml
+          changed_when: false
+
+        - name: Parse overcloud security group rules
+          set_fact:
+            overcloud_security_group_rules: >
+              {{ overcloud_security_group_rules_yaml.stdout|from_yaml }}
+
+        - name: Select default security group rules
+          set_fact:
+            default_security_group_rules: >
+              {{
+                overcloud_security_group_rules|
+                selectattr('Security Group', 'equalto', default_security_group.ID)|
+                list
+              }}
+
+    - name: Select SSH connection rule
+      set_fact:
+        ssh_connection_rule: >
+          {{
+            default_security_group_rules|
+            selectattr('IP Protocol', 'equalto', 'tcp')|
+            selectattr('IP Range', 'equalto', '0.0.0.0/0')|
+            selectattr('Port Range', 'equalto', '22:22')|
+            first
+          }}
+
+    - debug:
+        var: ssh_connection_rule
+        verbosity: 2
