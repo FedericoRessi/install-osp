@@ -227,6 +227,20 @@
         var: test_instance
         verbosity: 2
 
+    - name: Parse test instance ip addresses
+      set_fact:
+        test_instance_ips: >
+          {{
+            test_instance.Networks.split(', ')|
+            map('regex_findall', '\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')|
+            map('first')|
+            list
+          }}
+
+    - debug:
+        var: test_instance_ips
+        verbosity: 2
+
     - name: Select management network
       set_fact:
         management_network: >
@@ -240,47 +254,42 @@
         var: management_network
         verbosity: 2
 
-    - name: Get floating IPs
+    - name: Get overcloud subnets
       shell: |
         source ~/overcloudrc
-        openstack floating ip list -f yaml
-      register: overcloud_floating_ips_yaml
+        openstack subnet list -f yaml
+      register: overcloud_subnets_yaml
       changed_when: false
 
-    - name: Parse overcloud floating IPs
+    - name: Parse overcloud subnets
       set_fact:
-        overcloud_floating_ips: >
-          {{ overcloud_floating_ips_yaml.stdout|from_yaml }}
+        overcloud_subnets: >
+          {{overcloud_subnets_yaml.stdout|from_yaml}}
 
-    - name: Get floating ip detais
-      shell: |
-        source ~/overcloudrc
-        openstack floating ip show '{{ item.ID }}' -f yaml
-      register: overcloud_floating_ip_details_yaml
-      with_items: >
-        {{ overcloud_floating_ips }}
+    - debug:
+        var: overcloud_subnets
+        verbosity: 2
 
-    - name: Parse floating ip detais
+    - name: Select management subnet
       set_fact:
-        overcloud_floating_ip_details: >
+        management_subnet: >
           {{
-            overcloud_floating_ip_details_yaml.results|
-            map(attribute='stdout')|
-            map('from_yaml')|
-            list
+            overcloud_subnets|
+            selectattr('Network', 'equalto', management_network.ID)|
+            first
           }}
 
     - debug:
-        var: overcloud_floating_ip_details
+        var: management_subnet
         verbosity: 2
 
-    - when:
+    - when: >
         (
-          overcloud_floating_ip_details|
-          selectattr('floating_network_id', 'equalto', management_network.ID)|
+          test_instance_ips|
+          ipaddr(management_subnet.Subnet)|
           list|
           length
-        ) == 0
+        ) ==0
       block:
 
         - name: Create management floating IP
@@ -318,15 +327,70 @@
                 list
               }}
 
-    - name: Select management floating IP
+        - name: Select management floating IP
+          set_fact:
+            management_floating_ip: >
+              {{
+                overcloud_floating_ip_details|
+                selectattr('floating_network_id', 'equalto', management_network.ID)|
+                first
+              }}
+
+        - debug:
+            var: management_floating_ip
+            verbosity: 2
+
+        - name: Add management floating ip to test instance
+          shell: |
+            source ~/overcloudrc
+            openstack server add floating ip \
+                '{{ test_instance.ID }}' \
+                '{{ management_floating_ip.floating_ip_address }}'
+
+        - name: List overcloud instances
+          shell: |
+            source ~/overcloudrc
+            openstack server list -f yaml
+          register: overcloud_instances_yaml
+          changed_when: false
+
+        - name: Parse overcloud instances
+          set_fact:
+            overcloud_instances: >
+              {{ overcloud_instances_yaml.stdout|from_yaml }}
+
+        - name: Select overcloud test instance
+          set_fact:
+            test_instance: >
+              {{
+                overcloud_instances|
+                selectattr('Name', 'equalto', 'overcloud-test')|
+                first
+              }}
+
+        - debug:
+            var: test_instance
+            verbosity: 2
+
+        - name: Parse test instance ip addresses
+          set_fact:
+            test_instance_ips: >
+              {{
+                test_instance.Networks.split(', ')|
+                map('regex_findall', '\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')|
+                map('first')|
+                list
+              }}
+
+        - debug:
+            var: test_instance_ips
+            verbosity: 2
+
+    - name: Select test instance management IP
       set_fact:
-        management_floating_ip: >
-          {{
-            overcloud_floating_ip_details|
-            selectattr('floating_network_id', 'equalto', management_network.ID)|
-            first
-          }}
+        test_instance_management_ip: >
+          {{test_instance_ips|ipaddr(management_subnet.Subnet)|first}}
 
     - debug:
-        var: management_floating_ip
+        var: test_instance_management_ip
         # verbosity: 2
