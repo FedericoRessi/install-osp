@@ -5,6 +5,7 @@
 
   vars:
     home: /home/heat-admin
+    identity_file: '{{ home }}/.ssh/id_rsa'
     security_group_rules:
       - protocol: tcp
         port_range: "22:22"
@@ -238,15 +239,14 @@
       set_fact:
         test_instance_ips: >
           {{
-            test_instance.Networks.split(', ')|
-            map('regex_findall', '\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')|
-            map('first')|
+            test_instance.Networks|
+            regex_findall('\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')|
             list
           }}
 
     - debug:
         var: test_instance_ips
-        verbosity: 2
+        # verbosity: 2
 
     - name: Select management network
       set_fact:
@@ -384,9 +384,8 @@
           set_fact:
             test_instance_ips: >
               {{
-                test_instance.Networks.split(', ')|
-                map('regex_findall', '\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')|
-                map('first')|
+                test_instance.Networks|
+                regex_findall('\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')|
                 list
               }}
 
@@ -396,12 +395,7 @@
 
     - name: Select test instance management IP
       set_fact:
-        test_instance_management_ip: >
-          {{
-            test_instance_ips|
-            ipaddr(management_subnet.Subnet)|
-            first
-          }}
+        test_instance_management_ip: '{{ test_instance_ips|ipaddr(management_subnet.Subnet)|first }}'
 
     - debug:
         var: test_instance_management_ip
@@ -548,3 +542,53 @@
     - debug:
         var: admin_security_group_rules
         verbosity: 2
+
+    - name: Ping test instance
+      become_user: root
+      command: >
+        ping -c1 '{{ test_instance_management_ip }}'
+      changed_when: false
+
+    - name: Check SSH comnnection to test instance
+      shell: |
+        ssh \
+          -i '{{ identity_file}}' \
+          -o PasswordAuthentication=no \
+          'cirros@{{ test_instance_management_ip }}' \
+          echo SUCCESS
+      changed_when: false
+      register: test_ssh_connection
+      failed_when: test_ssh_connection.stdout != 'SUCCESS'
+      ignore_errors: true
+
+    - when: test_ssh_connection|failed
+      block:
+
+        - name: Install SSH pass
+          become_user: root
+          yum:
+            name: sshpass
+            state: installed
+
+        - name: Create SSH key to connect to test instance
+          shell: |
+            ssh-keygen -P '' -f '{{ identity_file}}'
+          args:
+            creates: '{{ identity_file}}'
+
+        - name: Check SSH comnnection to test instance
+          shell: |
+            sshpass -p 'cubswin:)' \
+              ssh-copy-id -i '{{ identity_file}}' \
+              'cirros@{{ test_instance_management_ip }}'
+
+        - name: Check SSH comnnection to test instance
+          shell: |
+            ssh \
+              -i '{{ identity_file}}' \
+              -o PasswordAuthentication=no \
+              'cirros@{{ test_instance_management_ip }}' \
+              echo SUCCESS
+          changed_when: false
+          register: test_ssh_connection
+          failed_when: test_ssh_connection.stdout != 'SUCCESS'
