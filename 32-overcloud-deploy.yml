@@ -10,12 +10,14 @@
       - 10.35.255.6
       - 10.35.28.1
 
-    control_scale: 1
+    control_scale: 3
     compute_scale: 2
 
     ssh_identity_file: "{{ lookup('env', 'SSH_IDENTITY_FILE') }}"
 
   tasks:
+
+    - fail:
 
     - name: Get node profiles
       shell: |
