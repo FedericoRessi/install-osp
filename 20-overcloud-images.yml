@@ -4,6 +4,9 @@
 
   vars:
     home: /home/stack
+    rpms_url:
+      'http://rhos-release.virt.bos.redhat.com/repos/rhos-release/rhos-release-latest.noarch.rpm'
+    rhel_version: '7.4'
 
   tasks:
 
@@ -46,13 +49,19 @@
             name: rhosp-director-images
             state: installed
 
+        - name: Delete directory for images
+          file:
+            path: "{{ home }}/images"
+            state: absent
+          register: create_images_dir
+
         - name: Create directory for images
           file:
             path: "{{ home }}/images"
             state: directory
           register: create_images_dir
 
-        - name: Extract images
+        - name: Extract ironic agent images
           command:
             tar -xvf /usr/share/rhosp-director-images/ironic-python-agent.tar '{{ item }}'
           args:
@@ -63,7 +72,7 @@
             - ironic-python-agent.initramfs
             - ironic-python-agent.kernel
 
-        - name: Extract OSP 11 images
+        - name: Extract overcloud images
           command:
             tar -xvf /usr/share/rhosp-director-images/overcloud-full-latest-11.0.tar '{{ item }}'
           args:
@@ -75,21 +84,15 @@
             - overcloud-full.initrd
             - overcloud-full.vmlinuz
 
-        - name: Set root password for full image
-          shell: |
-            virt-customize \
-              -a ~/images/overcloud-full.qcow2 \
-              --root-password password:redhat
-
         - name: Customize overcloud full image
           shell: |
             virt-customize \
               -a ~/images/overcloud-full.qcow2 \
-              --run-command '
-                rpm -ivh http://rhos-release.virt.bos.redhat.com/repos/rhos-release/rhos-release-latest.noarch.rpm &&
-                rhos-release 11 -r 7.4'
+              --root-password password:redhat \
+              --run-command 'rpm -ivh "{{ rpms_url }}"' \
+              --run-command 'rhos-release 11 -r "{{ rhel_version }}"'
 
-        - name: Upload overcloud images
+        - name: Upload images
           shell: |
             source "{{ home }}/stackrc"
             openstack overcloud image upload --image-path '{{ home }}/images/'
