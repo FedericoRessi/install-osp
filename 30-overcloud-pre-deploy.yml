@@ -27,7 +27,9 @@
         - name: Set subnet nameserver
           shell: |
             source '{{ home }}/stackrc'
-            openstack subnet set --no-dns-nameserver --dns-nameserver '{{ dns_nameservers }}' '{{ subnet.id }}'
+            openstack subnet set \
+              --no-dns-nameserver \
+              --dns-nameserver '{{ dns_nameservers }}' '{{ subnet.id }}'
           register: set_subnet_server
 
         - name: Check subnet nameservers has changed
@@ -195,3 +197,83 @@
               }}
             failed_when:
               (unavailable_nodes|length) > 0
+
+    - name: Get overcloud profiles
+      shell: |
+        source '{{ home }}/stackrc'
+        openstack overcloud profiles list -f yaml
+      changed_when: false
+      register: overcloud_profiles_yaml
+
+    - name: Parse overcloud profiles
+      set_fact:
+        overcloud_profiles: >
+          {{ overcloud_profiles_yaml.stdout|from_yaml }}
+
+    - name: Select invalid node profiles
+      set_fact:
+        invalid_profiles: >
+          {{
+            invalid_profiles|
+            default([])|
+            union(
+              overcloud_profiles|
+              selectattr('Current Profile', 'equalto', item.profile)|
+              list|
+              symmetric_difference(overcloud_profiles)|
+              selectattr('Node Name', 'search', item.regex)|
+              map('combine', {'Expected Profile': item.profile})|
+              list
+            )
+          }}
+      with_items:
+        - profile: control
+          regex: '^overcloud-ctrl'
+        - profile: compute
+          regex: '^overcloud-compute'
+        - profile: ceph-storage
+          regex: '^overcloud-ceph'
+        - profile: networker
+          regex: '^overcloud-networker'
+
+    - debug:
+        var: invalid_profiles
+        verbosity: 2
+
+    - name: Assign profile to nodes
+      shell: |
+        source '{{ home }}/stackrc'
+        ironic node-update \
+          '{{ item["Node UUID"] }}' \
+          add properties/capabilities='profile:{{ item['Expected Profile'] }},boot_option:local'
+      register: assign_profiles
+      with_items: >
+        {{ invalid_profiles }}
+
+    - when: assign_profiles|changed
+      block:
+        - name: Get overcloud profiles
+          shell: |
+            source '{{ home }}/stackrc'
+            openstack overcloud profiles list -f yaml
+          changed_when: false
+          register: overcloud_profiles_yaml
+
+        - name: Parse overcloud profiles
+          set_fact:
+            overcloud_profiles: >
+              {{ overcloud_profiles_yaml.stdout|from_yaml }}
+
+        - name: Check node profiles
+          when: >
+            (
+              overcloud_profiles|
+              selectattr('Node UUID', 'search', item['Node UUID'])|
+              selectattr('Current Profile', 'equalto', item['Expected Profile'])|
+              list|
+              length
+            ) == 0
+          fail: >
+            Invalid node profile for node: {{ item['Node Name'] }}
+          with_items: >
+            {{ invalid_profiles }}
