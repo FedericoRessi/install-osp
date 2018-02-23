@@ -7,21 +7,38 @@
 
   tasks:
 
-    - name: Get overcloud image list
+    - name: Get overcloud images
       shell: |
         source "{{ home }}/stackrc"
-        openstack image list -f value -c Name
+        openstack image list -f yaml
 
+      register: overcloud_images_yaml
       changed_when: false
-      register: list_images
 
-    - when: ('bm-deploy-kernel' not in list_images.stdout_lines) or
-            ('bm-deploy-ramdisk' not in list_images.stdout_lines) or
-            ('overcloud-full' not in list_images.stdout_lines) or
-            ('overcloud-full-initrd' not in list_images.stdout_lines) or
-            ('overcloud-full-vmlinuz' not in list_images.stdout_lines)
+    - name: Parse overcloud images
+      set_fact:
+        overcloud_images: >
+          {{ overcloud_images_yaml.stdout|from_yaml }}
 
+    - name: Get overcloud image names
+      set_fact:
+        overcloud_image_names: >
+          {{
+            overcloud_images|
+            map(attribute='Name')|
+            list
+          }}
+
+    - when: ('bm-deploy-kernel' not in overcloud_image_names) or
+            ('bm-deploy-ramdisk' not in overcloud_image_names) or
+            ('overcloud-full' not in overcloud_image_names) or
+            ('overcloud-full-initrd' not in overcloud_image_names) or
+            ('overcloud-full-vmlinuz' not in overcloud_image_names)
       block:
+
+        - debug:
+            var: overcloud_image_names
+            verbosity: 2
 
         - name: Install the OSP 11 image package
           become_user: root
@@ -46,15 +63,9 @@
             - ironic-python-agent.initramfs
             - ironic-python-agent.kernel
 
-        - name: Download overcloud-full-osp10.tar
-          get_url:
-            url: http://10.12.50.1/pub/osp10-images/overcloud-full-osp10.tar
-            dest: /tmp/overcloud-full-osp10.tar
-          register: download_overcloud_osp10
-
-        - name: Extract OSP 10 images
+        - name: Extract OSP 11 images
           command:
-            tar -xvf /tmp/overcloud-full-osp10.tar '{{ item }}'
+            tar -xvf /usr/share/rhosp-director-images/overcloud-full-latest-11.0.tar '{{ item }}'
           args:
             chdir: "{{ home }}/images"
             creates: "{{ home }}/images/{{ item }}"
@@ -64,30 +75,53 @@
             - overcloud-full.initrd
             - overcloud-full.vmlinuz
 
-        - name: Customize overcloud full image
-          shell: >
+        - name: Set root password for full image
+          shell: |
             virt-customize \
               -a ~/images/overcloud-full.qcow2 \
-              --root-password password:redhat \
+              --root-password password:redhat
+
+        - name: Customize overcloud full image
+          shell: |
+            virt-customize \
+              -a ~/images/overcloud-full.qcow2 \
               --run-command '
                 rpm -ivh http://rhos-release.virt.bos.redhat.com/repos/rhos-release/rhos-release-latest.noarch.rpm &&
-                rhos-release 10-director'
+                rhos-release 11 -r 7.4'
 
         - name: Upload overcloud images
           shell: |
             source "{{ home }}/stackrc"
-            openstack overcloud image upload --image-path "{{ home }}/images/"
+            openstack overcloud image upload --image-path '{{ home }}/images/'
 
-        - name: Get overcloud image list
+        - name: Get overcloud images
           shell: |
             source "{{ home }}/stackrc"
-            openstack image list -f value -c Name
+            openstack image list -f yaml
 
+          register: overcloud_images_yaml
           changed_when: false
-          register: list_images
+
+        - name: Parse overcloud images
+          set_fact:
+            overcloud_images: >
+              {{ overcloud_images_yaml.stdout|from_yaml }}
+
+        - name: Parse overcloud image names
+          set_fact:
+            overcloud_image_names: >
+              {{
+                overcloud_images|
+                map(attribute='Name')|
+                list
+              }}
           failed_when:
-            ('bm-deploy-kernel' not in list_images.stdout_lines) or
-            ('bm-deploy-ramdisk' not in list_images.stdout_lines) or
-            ('overcloud-full' not in list_images.stdout_lines) or
-            ('overcloud-full-initrd' not in list_images.stdout_lines) or
-            ('overcloud-full-vmlinuz' not in list_images.stdout_lines)
+            ('bm-deploy-kernel' not in overcloud_image_names) or
+            ('bm-deploy-ramdisk' not in overcloud_image_names) or
+            ('overcloud-full' not in overcloud_image_names) or
+            ('overcloud-full-initrd' not in overcloud_image_names) or
+            ('overcloud-full-vmlinuz' not in overcloud_image_names)
+
+    - debug:
+        var: overcloud_image_names
+        verbosity: 2
