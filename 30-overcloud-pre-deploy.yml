@@ -124,3 +124,74 @@
         {% for uuid in non_bootable_nodes %}
           '{{ uuid }}' \
         {% endfor %}
+      register: configure_overcloud_nodes
+
+    - when: configure_overcloud_nodes|changed
+      block:
+
+        - name: Get registered baremetal nodes
+          shell: |
+            source '{{ home }}/stackrc'
+            openstack baremetal node list -f yaml
+          changed_when: false
+          register: registered_nodes_yaml
+
+        - name: Select overcloud baremetal nodes
+          set_fact:
+            registered_nodes: >
+              {{
+                registered_nodes_yaml.stdout|
+                from_yaml|
+                selectattr('Name', 'search', '^overcloud-')|
+                list
+              }}
+
+    - name: Select unavailable nodes
+      set_fact:
+        unavailable_nodes: >
+          {{
+            registered_nodes|
+            selectattr('Provisioning State', 'equalto', 'available')|
+            list|
+            symmetric_difference(registered_nodes)
+          }}
+
+    - name: Provide overcloud nodes
+      shell: |
+        source '{{ home }}/stackrc'
+        openstack baremetal node provide '{{ item.UUID }}'
+      register: provide_overcloud_nodes
+      with_items: >
+        {{ unavailable_nodes }}
+
+    - when: provide_overcloud_nodes|changed
+      block:
+
+        - name: Get registered baremetal nodes
+          shell: |
+            source '{{ home }}/stackrc'
+            openstack baremetal node list -f yaml
+          changed_when: false
+          register: registered_nodes_yaml
+
+        - name: Select overcloud baremetal nodes
+          set_fact:
+            registered_nodes: >
+              {{
+                registered_nodes_yaml.stdout|
+                from_yaml|
+                selectattr('Name', 'search', '^overcloud-')|
+                list
+              }}
+
+        - name: Select unavailable nodes
+          set_fact:
+            unavailable_nodes: >
+              {{
+                registered_nodes|
+                selectattr('Provisioning State', 'equalto', 'available')|
+                list|
+                symmetric_difference(registered_nodes)
+              }}
+            failed_when:
+              (unavailable_nodes|length) > 0
