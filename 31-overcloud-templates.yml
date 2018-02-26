@@ -11,6 +11,12 @@
 
   tasks:
 
+    - name: Install TripleO heat templates
+      become_user: root
+      yum:
+        name: openstack-tripleo-heat-templates-compat
+        state: installed
+
     - name: Create templates directories
       file:
         path: '{{ item.dest }}'
