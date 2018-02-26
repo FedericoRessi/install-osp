@@ -1,0 +1,95 @@
+---
+- hosts: undercloud
+  become: true
+  become_user: stack
+
+  vars:
+    home: /home/stack
+    subnet_name: ctlplane-subnet
+    dns_nameservers: 192.168.122.1
+    src_templates_dir: /usr/share/openstack-tripleo-heat-templates
+    templates_dir: '{{ home }}/templates'
+
+  tasks:
+
+    - name: Create templates directories
+      file:
+        path: '{{ item.dest }}'
+        state: directory
+      with_items:
+        - src: /usr/share/openstack-tripleo-heat-templates/newton
+          dest: '{{ templates_dir }}'
+        - src: /usr/share/openstack-tripleo-heat-templates/network/config/bond-with-vlans
+          dest: '{{ templates_dir }}/nic-configs'
+      register: create_template_directory
+
+    - name: Copy template directories
+      shell: |
+        cp -r {{ item.src }}/* '{{ item.dest }}'
+      with_items: >
+        {{
+          create_template_directory.results|
+          selectattr('changed')|
+          map(attribute='item')|
+          list
+        }}
+      register: copy_template_directories
+
+    - name: Copy environment template files
+      copy:
+        src: 'undercloud/templates/{{ item }}'
+        dest: '{{ templates_dir }}/{{ item }}'
+      with_items:
+        - network-environment.yaml
+        - nic-configs/controller.yaml.patch
+        - HostnameMap.yaml
+        - ips-from-pool-all.yaml
+
+    - when: >
+        (
+          copy_template_directories.results|
+          selectattr('changed')|
+          map(attribute='item')|
+          selectattr('dest', 'equalto', templates_dir + '/nic-configs')|
+          list|
+          length
+        ) > 0
+      block:
+
+        - name: Patch nic-configs controller template file
+          shell: |
+            patch -p0 '{{ templates_dir }}/nic-configs/controller.yaml.patch'
+
+        - name: Patch nic-configs other template files
+          shell: |
+            for Y in {{ templates_dir }}/nic-configs/*.yaml; do \
+              sed -i 's/type: ovs_bond/type: linux_bond/' "${Y}"
+              sed -i 's/ovs_options:/bonding_options:/' "${Y}"
+            done
+
+    - when: >
+        (
+          copy_template_directories.results|
+          selectattr('changed')|
+          map(attribute='item')|
+          selectattr('dest', 'equalto', templates_dir)|
+          list|
+          length
+        ) > 0
+      block:
+
+        - name: Create storage environment file
+          shell: |
+            cp \
+              /usr/share/openstack-tripleo-heat-templates/environments/storage-environment.yaml \
+              '{{ templates_dir }}'
+            sed \
+              -i 's#../puppet/services#/usr/share/openstack-tripleo-heat-templates/puppet/services#' \
+              '{{ templates_dir }}/storage-environment.yaml'
+            cat << EOF >> '{{ templates_dir }}/storage-environment.yaml'
+
+            ExtraConfig:
+              ceph::profile::params::osds:
+                '/dev/vdb': {}
+
+            EOF

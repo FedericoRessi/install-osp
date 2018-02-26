@@ -11,7 +11,7 @@
 - import_playbook: 21-overcloud-instack.yml
 
 - import_playbook: 30-overcloud-pre-deploy.yml
-- import_playbook: 31-overcloud-network.yml
+- import_playbook: 31-overcloud-templates.yml
 - import_playbook: 32-overcloud-deploy.yml
 
 - import_playbook: 40-overcloud-network.yml
