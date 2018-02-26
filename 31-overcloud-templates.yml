@@ -7,7 +7,6 @@
     home: /home/stack
     subnet_name: ctlplane-subnet
     dns_nameservers: 192.168.122.1
-    src_templates_dir: /usr/share/openstack-tripleo-heat-templates
     templates_dir: '{{ home }}/templates'
 
   tasks:
@@ -44,6 +43,9 @@
         - nic-configs/controller.yaml.patch
         - HostnameMap.yaml
         - ips-from-pool-all.yaml
+        - storage-environment.yaml.patch
+        - wipe-disk.sh
+        - wipe-disks.yaml
 
     - when: >
         (
@@ -83,9 +85,11 @@
             cp \
               /usr/share/openstack-tripleo-heat-templates/environments/storage-environment.yaml \
               '{{ templates_dir }}'
+
             sed \
               -i 's#../puppet/services#/usr/share/openstack-tripleo-heat-templates/puppet/services#' \
               '{{ templates_dir }}/storage-environment.yaml'
+
             cat << EOF >> '{{ templates_dir }}/storage-environment.yaml'
 
             ExtraConfig:
@@ -93,3 +97,5 @@
                 '/dev/vdb': {}
 
             EOF
+
+            patch -p0 '{{ templates_dir }}/storage-environment.yaml.patch'
