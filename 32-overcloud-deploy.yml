@@ -10,9 +10,10 @@
       - 10.35.255.6
       - 10.35.28.1
 
-    control_scale: 3
+    control_scale: 1
     compute_scale: 1
-    storage_scale: 3
+    storage_scale: 0
+    deploy_timeout_minutes: 180
     templates_dir: '{{ home }}/templates'
 
     ssh_identity_file: "{{ lookup('env', 'SSH_IDENTITY_FILE') }}"
@@ -56,6 +57,7 @@
           shell: |
             source '{{ home }}/stackrc'
             openstack overcloud deploy \
+              --timeout '{{ deploy_timeout_minutes }}' \
               --templates /usr/share/openstack-tripleo-heat-templates \
               {% for ntp_server in ntp_servers %}
                 --ntp-server '{{ ntp_server }}' \
