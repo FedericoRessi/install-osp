@@ -151,7 +151,9 @@
           failed_when: (registered_nodes|length) != (nodes|length)
 
     - name: Place registered nodes into the manageable state
-      when: item['Provisioning State'] != 'manageable'
+      when: >
+        (item['Provisioning State'] != 'manageable') and
+        (item['Provisioning State'] != 'active')
       shell: |
         source '{{ home }}/stackrc'
         openstack baremetal node manage '{{ item.Name }}'
