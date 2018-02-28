@@ -1,0 +1,18 @@
+---
+- hosts: undercloud
+  become: true
+  become_user: stack
+
+  vars:
+    home: /home/stack
+    subnet_name: ctlplane-subnet
+    dns_nameservers: 192.168.122.1
+    templates_dir: '{{ home }}/templates'
+
+  tasks:
+
+    - name: Install TripleO heat templates
+      become_user: root
+      yum:
+        name: openstack-tripleo-heat-templates-compat
+        state: installed

@@ -90,7 +90,7 @@
         - name: Create undercloud VM
           command: >
             virt-install \
-              --ram 8192 \
+              --ram 12288 \
               --vcpus 1 \
               --os-variant rhel7 \
               --disk path=/var/lib/libvirt/images/undercloud.qcow2,device=disk,bus=virtio,format=qcow2 \

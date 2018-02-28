@@ -27,7 +27,9 @@
         - name: Set subnet nameserver
           shell: |
             source '{{ home }}/stackrc'
-            openstack subnet set --no-dns-nameserver --dns-nameserver '{{ dns_nameservers }}' '{{ subnet.id }}'
+            openstack subnet set \
+              --no-dns-nameserver \
+              --dns-nameserver '{{ dns_nameservers }}' '{{ subnet.id }}'
           register: set_subnet_server
 
         - name: Check subnet nameservers has changed

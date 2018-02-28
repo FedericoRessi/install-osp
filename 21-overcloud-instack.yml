@@ -51,10 +51,8 @@
         openstack baremetal node list -f yaml
       changed_when: false
       register: registered_nodes_yaml
-      ignore_errors: true
 
     - name: Select overcloud baremetal nodes
-      when: registered_nodes_yaml|succeeded
       set_fact:
         registered_nodes: >
           {{
@@ -65,9 +63,7 @@
           }}
 
     - when:
-        (registered_nodes_yaml | succeeded) and (
-          (registered_nodes | length) != (nodes | length)
-        )
+        (registered_nodes | length) != (nodes | length)
 
       block:
 
@@ -123,7 +119,7 @@
               {{
                 environment_yml|
                 from_yaml|
-                to_nice_json(indent=2)
+                to_json
               }}
             dest: '{{ env_file }}.raw'
 
@@ -155,7 +151,9 @@
           failed_when: (registered_nodes|length) != (nodes|length)
 
     - name: Place registered nodes into the manageable state
-      when: item['Provisioning State'] != 'manageable'
+      when: >
+        (item['Provisioning State'] != 'manageable') and
+        (item['Provisioning State'] != 'active')
       shell: |
         source '{{ home }}/stackrc'
         openstack baremetal node manage '{{ item.Name }}'
@@ -219,7 +217,7 @@
 
         shell: |
           source '{{ home }}/stackrc'
-          openstack overcloud node introspect --provide '{{ item.UUID }}'
+          openstack overcloud node introspect '{{ item.UUID }}'
 
         with_items: '{{ registered_nodes }}'
 
