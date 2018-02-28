@@ -11,7 +11,10 @@
       - 10.35.28.1
 
     control_scale: 1
-    compute_scale: 2
+    compute_scale: 1
+    storage_scale: 0
+    deploy_timeout_minutes: 180
+    templates_dir: '{{ home }}/templates'
 
     ssh_identity_file: "{{ lookup('env', 'SSH_IDENTITY_FILE') }}"
 
@@ -42,29 +45,31 @@
           flavor: control
         - var: active_compute_nodes
           flavor: compute
+        - var: active_storage_nodes
+          flavor: ceph-storage
 
     - when: ((active_control_nodes|length) != control_scale) or
-            ((active_compute_nodes|length) != compute_scale)
+            ((active_compute_nodes|length) != compute_scale) or
+            ((active_storage_nodes|length) != compute_scale)
       block:
-
-        - name: Install TripleO heat templates
-          become_user: root
-          yum:
-            name: openstack-tripleo-heat-templates-compat
-            state: installed
 
         - name: Deploy overcloud
           shell: |
             source '{{ home }}/stackrc'
             openstack overcloud deploy \
-              --templates /usr/share/openstack-tripleo-heat-templates/newton/ \
+              --timeout '{{ deploy_timeout_minutes }}' \
+              --templates /usr/share/openstack-tripleo-heat-templates \
               {% for ntp_server in ntp_servers %}
                 --ntp-server '{{ ntp_server }}' \
               {% endfor %}
-              --control-scale '{{ control_scale }}' \
               --control-flavor control \
+              --control-scale '{{ control_scale }}' \
+              --compute-flavor compute \
               --compute-scale '{{ compute_scale }}' \
-              --compute-flavor compute
+              --ceph-storage-flavor ceph-storage \
+              --ceph-storage-scale '{{ storage_scale }}' \
+              # --neutron-tunnel-types vxlan \
+              # --neutron-network-type vxlan
 
     - name: Get overcloud nodes network detais
       shell: |

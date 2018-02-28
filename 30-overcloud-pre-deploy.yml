@@ -126,3 +126,154 @@
         {% for uuid in non_bootable_nodes %}
           '{{ uuid }}' \
         {% endfor %}
+      register: configure_overcloud_nodes
+
+    - when: configure_overcloud_nodes|changed
+      block:
+
+        - name: Get registered baremetal nodes
+          shell: |
+            source '{{ home }}/stackrc'
+            openstack baremetal node list -f yaml
+          changed_when: false
+          register: registered_nodes_yaml
+
+        - name: Select overcloud baremetal nodes
+          set_fact:
+            registered_nodes: >
+              {{
+                registered_nodes_yaml.stdout|
+                from_yaml|
+                selectattr('Name', 'search', '^overcloud-')|
+                list
+              }}
+
+    - name: Select unavailable nodes
+      set_fact:
+        unavailable_nodes: >
+          {{
+            registered_nodes|
+            selectattr('Provisioning State', 'equalto', 'available')|
+            list|
+            symmetric_difference(registered_nodes)
+          }}
+
+    - name: Provide overcloud nodes
+      shell: |
+        source '{{ home }}/stackrc'
+        openstack baremetal node provide '{{ item.UUID }}'
+      register: provide_overcloud_nodes
+      with_items: >
+        {{ unavailable_nodes }}
+
+    - when: provide_overcloud_nodes|changed
+      block:
+
+        - name: Get registered baremetal nodes
+          shell: |
+            source '{{ home }}/stackrc'
+            openstack baremetal node list -f yaml
+          changed_when: false
+          register: registered_nodes_yaml
+
+        - name: Select overcloud baremetal nodes
+          set_fact:
+            registered_nodes: >
+              {{
+                registered_nodes_yaml.stdout|
+                from_yaml|
+                selectattr('Name', 'search', '^overcloud-')|
+                list
+              }}
+
+        - name: Select unavailable nodes
+          set_fact:
+            unavailable_nodes: >
+              {{
+                registered_nodes|
+                selectattr('Provisioning State', 'equalto', 'available')|
+                list|
+                symmetric_difference(registered_nodes)
+              }}
+            failed_when:
+              (unavailable_nodes|length) > 0
+
+    - name: Get overcloud profiles
+      shell: |
+        source '{{ home }}/stackrc'
+        openstack overcloud profiles list -f yaml
+      changed_when: false
+      register: overcloud_profiles_yaml
+
+    - name: Parse overcloud profiles
+      set_fact:
+        overcloud_profiles: >
+          {{ overcloud_profiles_yaml.stdout|from_yaml }}
+
+    - name: Select invalid node profiles
+      set_fact:
+        invalid_profiles: >
+          {{
+            invalid_profiles|
+            default([])|
+            union(
+              overcloud_profiles|
+              selectattr('Current Profile', 'equalto', item.profile)|
+              list|
+              symmetric_difference(overcloud_profiles)|
+              selectattr('Node Name', 'search', item.regex)|
+              map('combine', {'Expected Profile': item.profile})|
+              list
+            )
+          }}
+      with_items:
+        - profile: control
+          regex: '^overcloud-ctrl'
+        - profile: compute
+          regex: '^overcloud-compute'
+        - profile: ceph-storage
+          regex: '^overcloud-ceph'
+        - profile: networker
+          regex: '^overcloud-networker'
+
+    - debug:
+        var: invalid_profiles
+        verbosity: 2
+
+    - name: Assign profile to nodes
+      shell: |
+        source '{{ home }}/stackrc'
+        ironic node-update \
+          '{{ item["Node UUID"] }}' \
+          add properties/capabilities='profile:{{ item['Expected Profile'] }},boot_option:local'
+      register: assign_profiles
+      with_items: >
+        {{ invalid_profiles }}
+
+    - when: assign_profiles|changed
+      block:
+        - name: Get overcloud profiles
+          shell: |
+            source '{{ home }}/stackrc'
+            openstack overcloud profiles list -f yaml
+          changed_when: false
+          register: overcloud_profiles_yaml
+
+        - name: Parse overcloud profiles
+          set_fact:
+            overcloud_profiles: >
+              {{ overcloud_profiles_yaml.stdout|from_yaml }}
+
+        - name: Check node profiles
+          when: >
+            (
+              overcloud_profiles|
+              selectattr('Node UUID', 'search', item['Node UUID'])|
+              selectattr('Current Profile', 'equalto', item['Expected Profile'])|
+              list|
+              length
+            ) == 0
+          fail: >
+            Invalid node profile for node: {{ item['Node Name'] }}
+          with_items: >
+            {{ invalid_profiles }}
