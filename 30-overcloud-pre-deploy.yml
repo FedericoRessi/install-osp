@@ -85,7 +85,7 @@
     - name: Get baremetal nodes details
       shell: |
         source '{{ home }}/stackrc'
-        openstack baremetal node show -c driver_info -c uuid -f yaml '{{ item.UUID }}'
+        openstack baremetal node show -f yaml '{{ item.UUID }}'
       register: nodes_yaml
       changed_when: false
       with_items: '{{ registered_nodes }}'

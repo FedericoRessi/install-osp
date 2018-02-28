@@ -96,7 +96,7 @@
               -a ~/images/overcloud-full.qcow2 \
               --root-password password:redhat \
               --run-command 'rpm -ivh "{{ rpms_url }}"' \
-              --run-command 'rhos-release 10-director"'
+              --run-command 'rhos-release 10-director'
 
         - name: Upload images
           shell: |

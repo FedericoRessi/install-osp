@@ -152,8 +152,7 @@
 
     - name: Place registered nodes into the manageable state
       when: >
-        (item['Provisioning State'] != 'manageable') and
-        (item['Provisioning State'] != 'active')
+        item['Provisioning State'] == 'available'
       shell: |
         source '{{ home }}/stackrc'
         openstack baremetal node manage '{{ item.Name }}'
